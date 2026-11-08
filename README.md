@@ -35,6 +35,8 @@ recommended compression settings.
 - **Never exceeds the source bitrate**, so efficient sources don't get bigger.
 - **H.265 by default**, for the best quality at a given size (x265, preset `medium`). x264 is
   available for maximum compatibility.
+- **Apple hardware decoding** speeds up both passes, especially for HEVC and ProRes
+  sources, and falls back to software automatically.
 - **Apple hardware encoding** (VideoToolbox) for fast results.
 - **Desktop app:**
   - Queue with drag & drop and thumbnails.

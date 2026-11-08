@@ -31,6 +31,7 @@ import sys
 import tempfile
 import threading
 import webbrowser
+import dataclasses
 from dataclasses import dataclass, field
 
 # --------------------------------------------------------------------------
@@ -127,6 +128,24 @@ def ffmpeg_has_fps_mode():
         return not m or int(m.group(1)) >= 5
     except Exception:
         return True
+
+
+_HWDEC = {}
+
+
+def hwdec_available():
+    """True on macOS when ffmpeg can decode via VideoToolbox (cached)."""
+    if "ok" not in _HWDEC:
+        ok = False
+        if sys.platform == "darwin" and FFMPEG:
+            try:
+                out = subprocess.run([FFMPEG, "-hide_banner", "-hwaccels"],
+                                     capture_output=True, text=True, timeout=10).stdout
+                ok = "videotoolbox" in out.split()
+            except Exception:
+                ok = False
+        _HWDEC["ok"] = ok
+    return _HWDEC["ok"]
 
 
 def available_encoders():
@@ -314,6 +333,7 @@ class Settings:
     ten_bit: bool = False
     deinterlace: str = "Auto"       # Auto / On / Off
     keyframe_sec: float = 2.0
+    hw_decode: bool = True          # decode the source via VideoToolbox (macOS)
     suffix: str = "_vimeo"
     out_dir: str = ""
     extra_args: str = ""
@@ -466,7 +486,12 @@ def _fps_str(f):
 def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
     """pass_no: 0 = single pass, 1/2 = two-pass."""
     info = plan.info
-    cmd = [FFMPEG, "-hide_banner", "-y", "-nostdin", "-i", info.path]
+    cmd = [FFMPEG, "-hide_banner", "-y", "-nostdin"]
+    if s.hw_decode and hwdec_available():
+        # frames are copied back to system memory automatically for the CPU filters;
+        # unsupported formats fall back to software decoding inside ffmpeg
+        cmd += ["-hwaccel", "videotoolbox"]
+    cmd += ["-i", info.path]
     if not info.has_audio and pass_no != 1:
         cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
 
@@ -599,12 +624,20 @@ class Job:
             self.log("  • " + n)
         tmpdir = tempfile.mkdtemp(prefix="shrew_2pass_")
         passlog = os.path.join(tmpdir, "pass")
-        try:
-            if self.s.codec in ("libx264", "libx265"):
-                self._run(build_cmd(plan, self.s, out, 1, passlog), info.duration, 0, 0.5)
-                self._run(build_cmd(plan, self.s, out, 2, passlog), info.duration, 0.5, 1)
+        def encode(s):
+            if s.codec in ("libx264", "libx265"):
+                self._run(build_cmd(plan, s, out, 1, passlog), info.duration, 0, 0.5)
+                self._run(build_cmd(plan, s, out, 2, passlog), info.duration, 0.5, 1)
             else:
-                self._run(build_cmd(plan, self.s, out, 0), info.duration, 0, 1)
+                self._run(build_cmd(plan, s, out, 0), info.duration, 0, 1)
+        try:
+            try:
+                encode(self.s)
+            except RuntimeError:
+                if not (self.s.hw_decode and hwdec_available()) or self.stop.is_set():
+                    raise
+                self.log("  ⚠ Hardware decoding failed – retrying with software decoding.")
+                encode(dataclasses.replace(self.s, hw_decode=False))
         except BaseException:
             if os.path.exists(out):
                 try:
@@ -721,6 +754,10 @@ TIPS = {
              "MP4 can't hold PCM audio, so in that case the output is saved as .mov "
              "(Vimeo accepts both). Videos without sound still get a silent AAC track.",
     "unit": "Unit for the target size: GB or MB (decimal, 1 GB = 1,000 MB).",
+    "hwdec": "Read (decode) the source video with the Mac's media engine instead of the CPU. "
+             "Speeds up both passes – especially for HEVC and ProRes sources – and leaves more "
+             "CPU for the encoder. The image is identical; unsupported formats fall back to "
+             "software automatically, and a failed run is retried without it. macOS only.",
     "extra": "Additional ffmpeg output options, e.g.  -tune film  or  -metadata title=\"My Film\".\n"
              "For experts – applied to the final pass.",
 }
@@ -903,6 +940,7 @@ def run_gui():
         abr=tk.StringVar(value="320"), ach=tk.StringVar(value="Auto"),
         vcap=tk.BooleanVar(value=True), scap=tk.BooleanVar(value=True),
         ten=tk.BooleanVar(value=False), deint=tk.StringVar(value="Auto"),
+        hwdec=tk.BooleanVar(value=True),
         gop=tk.DoubleVar(value=2.0), suffix=tk.StringVar(value="_vimeo"),
         outdir=tk.StringVar(value=""), extra=tk.StringVar(value=""),
     )
@@ -916,6 +954,7 @@ def run_gui():
             audio_copy=V["acopy"].get(),
             vimeo_cap=V["vcap"].get(), source_cap=V["scap"].get(), ten_bit=V["ten"].get(),
             deinterlace=V["deint"].get(), keyframe_sec=float(V["gop"].get()),
+            hw_decode=V["hwdec"].get(),
             suffix=V["suffix"].get() or "_vimeo", out_dir=V["outdir"].get(),
             extra_args=V["extra"].get())
 
@@ -1280,10 +1319,13 @@ def run_gui():
     chk.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
     for r, (key, txt) in enumerate((("vcap", "Cap at Vimeo's recommended bitrate"),
                                     ("scap", "Never exceed source bitrate"),
-                                    ("ten", "10-bit colour"))):
+                                    ("ten", "10-bit colour"),
+                                    ("hwdec", "Hardware decoding (Apple)"))):
         cb = ttk.Checkbutton(chk, text=txt, variable=V[key])
         cb.grid(row=r, column=0, sticky="w", pady=2)
         Tooltip(cb, TIPS[key])
+        if key == "hwdec" and sys.platform != "darwin":
+            cb.state(["disabled"])
 
     ac = card(sets, "Audio")
     ac.grid(row=0, column=2, sticky="nsew")
@@ -1770,6 +1812,8 @@ def run_cli(argv):
     ap.add_argument("--no-source-cap", action="store_true")
     ap.add_argument("--10bit", dest="ten", action="store_true")
     ap.add_argument("--deinterlace", default="Auto", choices=["Auto", "On", "Off"])
+    ap.add_argument("--no-hwdec", action="store_true",
+                    help="don't use VideoToolbox hardware decoding (macOS)")
     ap.add_argument("--outdir", default="")
     ap.add_argument("--dry-run", action="store_true", help="only show plan + command")
     a = ap.parse_args(argv)
@@ -1779,6 +1823,7 @@ def run_cli(argv):
                  resolution=res, fps=a.fps, audio_kbps=a.audio, audio_channels=a.channels,
                  vimeo_cap=not a.no_vimeo_cap, source_cap=not a.no_source_cap,
                  ten_bit=a.ten, deinterlace=a.deinterlace, out_dir=a.outdir,
+                 hw_decode=not a.no_hwdec,
                  audio_copy=a.copy_audio)
     stop = threading.Event()
     for f in a.files:

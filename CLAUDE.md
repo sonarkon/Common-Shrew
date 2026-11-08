@@ -53,6 +53,10 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      uses `slow-firstpass=0` for speed.
    - Colour tags come from the source and fall back to BT.709.
    - A silent `anullsrc` track is added when the source has no audio.
+   - Hardware decoding: `-hwaccel videotoolbox` is used when `Settings.hw_decode` is on
+     (the default) and `hwdec_available()` is true, which only happens on macOS. If a run
+     fails with it, `Job.run()` retries once with software decoding. Encoding stays
+     x265/x264 unless a VideoToolbox codec is chosen.
 5. **`Job.run()`:**
    - Runs the passes and parses `out_time_us` for progress.
    - Cancelling deletes the partial output.
