@@ -8,6 +8,9 @@ videos so each file ends up just below a target size (default **5 GB**). It foll
 upload recommendations and offers size presets for other platforms. It's named after the
 common shrew, which shrinks in winter (Dehnel's phenomenon). Hovering the title shows a
 tooltip about this, and clicking it opens https://en.wikipedia.org/wiki/Common_shrew.
+A "Support on Ko-fi" button in the header opens `KOFI_URL`
+(https://ko-fi.com/S7Z228X1UL). The README shows the same Ko-fi badge at the top and in
+"Support".
 
 Owner: Jost. Conversation language with him is **German**. The app UI, code, comments,
 README and commit messages are **English**.

@@ -2,6 +2,8 @@
 
 **Shrinks videos to a target size – tuned to Vimeo's upload specs.**
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
+
 A small macOS app (Python + Tkinter, powered by ffmpeg) that compresses one or many videos so
 each file ends up just below a chosen size – 5 GB by default – while following Vimeo's
 recommended compression settings.
@@ -73,6 +75,12 @@ python3 common_shrew.py --cli --help
 - Platform limits change often, and many platforms also limit duration. The presets
   reflect limits as of November 2026.
 - Output files go next to the source, or to a chosen folder, named `<name>_vimeo.mp4`.
+
+## Support
+
+Common Shrew is free. If it saves you time, you can buy me a coffee:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
 
 ## Sources
 

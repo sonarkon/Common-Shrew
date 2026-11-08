@@ -617,8 +617,11 @@ def fmt_size(b):
 
 APP_NAME = "Common Shrew"
 WIKI_URL = "https://en.wikipedia.org/wiki/Common_shrew"
+KOFI_URL = "https://ko-fi.com/S7Z228X1UL"
 
 TIPS = {
+    "kofi": "Common Shrew is free. If it saves you time, you can support its development "
+            "with a coffee on Ko-fi.\n\nOpens ko-fi.com/S7Z228X1UL in your browser.",
     "title": "Common Shrew is named after Sorex araneus, the common shrew: to survive winter it "
              "shrinks its body by about 18 %, its skull by around 15 % and its brain by up to "
              "20–30 % – then grows back in spring. This is called Dehnel's phenomenon.\n\n"
@@ -789,6 +792,10 @@ def run_gui():
                                          ("active", C["accent_hi"])],
            foreground=[("disabled", C["muted"])])
     st.configure("Small.TButton", padding=(10, 4), font=F["small"])
+    st.configure("Kofi.TButton", background=C["field"], foreground=C["fg"],
+                 padding=(12, 5), font=F["small"], borderwidth=1, bordercolor=C["line"],
+                 lightcolor=C["field"], darkcolor=C["field"])
+    st.map("Kofi.TButton", background=[("active", C["sel"]), ("pressed", C["sel"])])
     st.configure("Small.TMenubutton", background=C["field"], foreground=C["fg"],
                  padding=(10, 4), font=F["small"], borderwidth=0, arrowcolor=C["field"])
     st.map("Small.TMenubutton", background=[("active", C["line"]), ("pressed", C["line"])])
@@ -871,8 +878,12 @@ def run_gui():
     Tooltip(title, TIPS["title"])
     ttk.Label(hdr, text="   Shrinks videos to a target size – tuned to Vimeo's upload specs",
               style="MutedBg.TLabel").pack(side="left", pady=(6, 0))
+    kofi = ttk.Button(hdr, text="☕  Support on Ko-fi", style="Kofi.TButton",
+                      cursor="hand2", command=lambda: webbrowser.open(KOFI_URL))
+    kofi.pack(side="right")
+    Tooltip(kofi, TIPS["kofi"])
     ff_lbl = ttk.Label(hdr, text="", style="MutedBg.TLabel")
-    ff_lbl.pack(side="right", pady=(6, 0))
+    ff_lbl.pack(side="right", padx=(0, 16), pady=(6, 0))
 
     def card(parent, title):
         f = ttk.Frame(parent, style="Panel.TFrame", padding=(14, 10, 14, 12))
