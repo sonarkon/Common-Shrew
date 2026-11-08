@@ -3,7 +3,8 @@
 Context for Claude (or anyone) working on this repo from any machine.
 
 ## What this is
-**Common Shrew** is a macOS desktop tool (Python + Tkinter, ffmpeg underneath) that compresses
+**Common Shrew** is a cross-platform desktop tool for macOS, Windows and Linux
+(Python + Tkinter, ffmpeg underneath) that compresses
 videos so each file ends up just below a target size (default **5 GB**). It follows Vimeo's
 upload recommendations and offers size presets for other platforms. It's named after the
 common shrew, which shrinks in winter (Dehnel's phenomenon). Hovering the title shows a
@@ -20,6 +21,8 @@ README and commit messages are **English**.
 |---|---|
 | `common_shrew.py` | The whole app in one file: analysis, planning, ffmpeg commands, GUI, CLI |
 | `Common Shrew.command` | Double-click launcher for macOS. It asks y/n before installing Homebrew, ffmpeg, python-tk and `tkinterdnd2` into `.venv/`, then starts the app |
+| `Common Shrew.bat` | Windows launcher: Python and ffmpeg via winget (on request), `tkinterdnd2` in `.venv\`, then starts with `pythonw`/`pyw` so no console window appears. CRLF line endings come from `.gitattributes` |
+| `common-shrew.sh` | Linux launcher: ffmpeg and Tkinter via apt, dnf, pacman or zypper (`sudo`, on request), `tkinterdnd2` in `.venv/` |
 | `tools/make_samples.sh` | Generates synthetic test clips (PCM audio, 120 fps without audio, scope, portrait) into `samples/` |
 | `tools/gui_screenshot.py` | Headless GUI smoke test plus screenshot |
 | `docs/screenshot.png` | Screenshot used in the README |
@@ -115,9 +118,28 @@ xvfb-run -a -s "-screen 0 1220x930x24" .venv/bin/python tools/gui_screenshot.py 
   render fine on macOS.
 - Linux without python3-tk: `uv python install 3.12` gives a standalone Python with Tk 9.
 
+## Platforms
+- `IS_MAC` / `IS_WIN` switch the platform-specific bits; everything else is shared.
+- **macOS only:** VideoToolbox. The two Apple hardware codecs are added to `CODECS`, and
+  the "Hardware decoding" checkbox is shown, only when `IS_MAC`.
+- **Windows:**
+  - Every subprocess call passes `**POPEN_KW` (`CREATE_NO_WINDOW`) so ffmpeg doesn't
+    flash a console window. Keep that on any new `subprocess` call.
+  - Text pipes use `encoding="utf-8", errors="replace"`, otherwise non-ASCII file names
+    break ffprobe JSON on cp1252 systems.
+- `find_tool()` looks beyond `PATH`: Homebrew, linuxbrew and snap on macOS/Linux; winget
+  Links/Packages, scoop, choco and `C:\ffmpeg\bin` on Windows. A freshly installed
+  ffmpeg is found without restarting the shell.
+- In-app "install ffmpeg" (`ffmpeg_install_cmd`) uses brew on macOS and winget on Windows.
+  On Linux it shows the package-manager command, because installing needs `sudo`.
+- Tested so far: Linux (CI-like container) and macOS (Jost). **Windows is untested.**
+  Treat Windows bug reports as likely real.
+
 ## Conventions
 - Keep it a **single-file app** with no dependencies beyond the standard library, except
   the optional `tkinterdnd2`.
+- Keep all three platforms working: don't add macOS-only calls without an `IS_MAC`
+  guard, and when a launcher changes, update the other launchers too.
 - Don't break Python 3.9, macOS's system python3: no `match` statements and no
   `X | Y` type hints.
 - Every new option needs:
@@ -136,4 +158,15 @@ xvfb-run -a -s "-screen 0 1220x930x24" .venv/bin/python tools/gui_screenshot.py 
   - per-file settings;
   - remembering settings between runs;
   - an app bundle (py2app/Platypus) instead of the `.command` file;
-  - duration warnings for platform presets (e.g. X: 140 s).
+  - duration warnings for platform presets (e.g. X: 140 s);
+  - **hardware encoding/decoding on Windows/Linux** (optional, discussed with Jost):
+    - NVIDIA: `hevc_nvenc` / `h264_nvenc` encoders, `-hwaccel cuda` decoding.
+    - Intel: `hevc_qsv` / `h264_qsv` encoders, `-hwaccel qsv`.
+    - AMD: `hevc_amf` / `h264_amf` encoders.
+    - Linux: VAAPI (`hevc_vaapi` plus `-vaapi_device`, needs `format=nv12,hwupload`
+      in the filter chain).
+    - Detect support via `ffmpeg -encoders` / `-hwaccels`, plus a test encode, because
+      a listed encoder can still fail without the GPU or driver.
+    - These are single-pass, so treat them like VideoToolbox: larger safety margin,
+      less precise size.
+    - Can't be tested without the hardware.

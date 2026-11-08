@@ -2,7 +2,7 @@
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
 
-A small macOS app (Python + Tkinter, powered by ffmpeg) that compresses one or many videos so
+A small desktop app for macOS, Windows and Linux (Python + Tkinter, powered by ffmpeg) that compresses one or many videos so
 each file ends up just below a chosen size – 5 GB by default – while following Vimeo's
 recommended compression settings.
 
@@ -33,9 +33,9 @@ recommended compression settings.
 - **Never exceeds the source bitrate**, so efficient sources don't get bigger.
 - **H.265 by default**, for the best quality at a given size (x265, preset `medium`). x264 is
   available for maximum compatibility.
-- **Apple hardware decoding** speeds up both passes, especially for HEVC and ProRes
+- **Apple hardware decoding** (macOS) speeds up both passes, especially for HEVC and ProRes
   sources, and falls back to software automatically.
-- **Apple hardware encoding** (VideoToolbox) for fast results.
+- **Apple hardware encoding** (VideoToolbox, macOS) for fast results.
 - **Desktop app:**
   - Queue with drag & drop and thumbnails.
   - Hover-scrub preview: move the mouse across the thumbnail to check you've got the
@@ -44,24 +44,56 @@ recommended compression settings.
   - The actual size and reduction in % after encoding.
   - Tooltips for every option, a progress bar and a log.
 
-## Install & run (macOS)
+## Install & run
 
-1. Download or clone this repository.
-2. Double-click **`Common Shrew.command`**. The first time, use right-click → Open, because
-   macOS blocks unsigned scripts.
-3. The launcher checks for what's missing and offers to install it (answer `y`/`n`):
-   - **Homebrew**, if needed.
-   - **ffmpeg** via Homebrew.
-   - **python-tk** via Homebrew. Apple's built-in Tk is outdated and draws blank widgets.
-   - **tkinterdnd2**, for drag & drop, installed into a local `.venv` folder.
+Common Shrew runs on **macOS, Windows and Linux**. Download or clone this repository, then
+start the launcher for your system. Each launcher checks what's missing and asks before it
+installs anything.
 
-Manual setup:
+### macOS
+Double-click **`Common Shrew.command`**. The first time, use right-click → Open, because
+macOS blocks unsigned scripts. It offers to install:
+- **Homebrew**, if needed.
+- **ffmpeg** via Homebrew.
+- **python-tk** via Homebrew. Apple's built-in Tk is outdated and draws blank widgets.
+- **tkinterdnd2** for drag & drop, into a local `.venv` folder.
+
+### Windows
+Double-click **`Common Shrew.bat`**. It offers to install:
+- **Python 3**, via winget. The python.org installer already includes Tkinter.
+- **ffmpeg**, via winget (`Gyan.FFmpeg`).
+- **tkinterdnd2** for drag & drop.
+
+The app then starts without a console window.
+
+### Linux
+Run **`./common-shrew.sh`**. It offers to install, via apt, dnf, pacman or zypper (with
+`sudo`):
+- **ffmpeg**.
+- **Tkinter** (`python3-tk`).
+- **tkinterdnd2** for drag & drop.
+
+On Fedora, the full ffmpeg with x264/x265 comes from
+[RPM Fusion](https://rpmfusion.org/Configuration).
+
+### Manual setup
 
 ```sh
+# macOS
 brew install ffmpeg python-tk
-python3 -m venv .venv && .venv/bin/pip install tkinterdnd2   # optional: drag & drop
-.venv/bin/python common_shrew.py
+# Windows (PowerShell)
+winget install Gyan.FFmpeg          # Python from python.org includes Tkinter
+# Debian/Ubuntu
+sudo apt install ffmpeg python3-tk python3-venv
+
+python3 -m venv .venv
+.venv/bin/pip install tkinterdnd2   # optional: drag & drop  (Windows: .venv\Scripts\pip)
+.venv/bin/python common_shrew.py    # Windows: .venv\Scripts\pythonw common_shrew.py
 ```
+
+Apple hardware encoding and decoding (VideoToolbox) are only offered on macOS. On Windows
+and Linux, Common Shrew uses the x265/x264 software encoders, which are also the default
+on the Mac.
 
 ## Command line
 

@@ -9,8 +9,11 @@ Vimeo's upload recommendations (help.vimeo.com, "Video compression settings"):
     (a silent one is added if missing)
   * Square pixels, BT.709 colour tags for SDR, MP4 with faststart
 
-Requires ffmpeg + ffprobe (brew install ffmpeg) and Python with Tkinter
-(brew install python-tk). Optional drag & drop: pip install tkinterdnd2.
+Runs on macOS, Windows and Linux. Requires ffmpeg + ffprobe and Python 3.9+ with Tkinter:
+  macOS:   brew install ffmpeg python-tk
+  Windows: winget install Gyan.FFmpeg   (python.org Python already includes Tkinter)
+  Linux:   sudo apt install ffmpeg python3-tk   (or dnf / pacman equivalents)
+Optional drag & drop: pip install tkinterdnd2. The launchers in the repo set all this up.
 Without GUI:  python3 common_shrew.py --cli movie.mov --size 5
 
 Named after the common shrew (Sorex araneus), which shrinks in winter
@@ -57,12 +60,20 @@ RESOLUTIONS = {
     "720p – fit 1280×720": (1280, 720),
     "SD – fit 854×480": (854, 480),
 }
+IS_MAC = sys.platform == "darwin"
+IS_WIN = os.name == "nt"
+# keeps ffmpeg from flashing a console window for every call on Windows
+POPEN_KW = {"creationflags": subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
+
 CODECS = {   # first entry = default
     "H.265 · x265 2-pass (precise)": "libx265",
     "H.264 · x264 2-pass (precise)": "libx264",
-    "H.264 · Apple hardware (fast)": "h264_videotoolbox",
-    "H.265 · Apple hardware (fast)": "hevc_videotoolbox",
 }
+if IS_MAC:   # Apple VideoToolbox hardware encoders exist only on macOS
+    CODECS.update({
+        "H.264 · Apple hardware (fast)": "h264_videotoolbox",
+        "H.265 · Apple hardware (fast)": "hevc_videotoolbox",
+    })
 PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast",
            "medium", "slow", "slower", "veryslow"]
 FPS_CHOICES = ["Original"] + [str(f) for f in STANDARD_FPS]
@@ -106,12 +117,32 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v", ".mxf", ".mkv", ".avi", ".mts", ".m2ts",
 
 
 def find_tool(name):
-    """Find ffmpeg/ffprobe even when launched by double-click without a PATH."""
+    """Find ffmpeg/ffprobe even when launched by double-click without a full PATH."""
     p = shutil.which(name)
     if p:
         return p
-    for d in ("/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"):
-        c = os.path.join(d, name)
+    if IS_WIN:
+        la = os.environ.get("LOCALAPPDATA", "")
+        dirs = [os.path.join(la, "Microsoft", "WinGet", "Links"),   # winget install
+                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                             "ffmpeg", "bin"),
+                r"C:\ffmpeg\bin",
+                os.path.join(os.path.expanduser("~"), "scoop", "shims"),
+                r"C:\ProgramData\chocolatey\bin"]
+        exe = name + ".exe"
+        # winget also unpacks into …\WinGet\Packages\Gyan.FFmpeg*\ffmpeg-*\bin
+        pk = os.path.join(la, "Microsoft", "WinGet", "Packages")
+        if os.path.isdir(pk):
+            for d in os.listdir(pk):
+                if d.lower().startswith("gyan.ffmpeg"):
+                    for sub in os.listdir(os.path.join(pk, d)):
+                        dirs.append(os.path.join(pk, d, sub, "bin"))
+    else:
+        exe = name
+        dirs = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin",
+                "/home/linuxbrew/.linuxbrew/bin", "/snap/bin", "/usr/bin"]
+    for d in dirs:
+        c = os.path.join(d, exe)
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
     return None
@@ -123,7 +154,8 @@ FFPROBE = find_tool("ffprobe")
 
 def ffmpeg_has_fps_mode():
     try:
-        out = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True).stdout
+        out = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True,
+                             **POPEN_KW).stdout
         m = re.search(r"ffmpeg version n?(\d+)", out)
         return not m or int(m.group(1)) >= 5
     except Exception:
@@ -137,10 +169,11 @@ def hwdec_available():
     """True on macOS when ffmpeg can decode via VideoToolbox (cached)."""
     if "ok" not in _HWDEC:
         ok = False
-        if sys.platform == "darwin" and FFMPEG:
+        if IS_MAC and FFMPEG:
             try:
                 out = subprocess.run([FFMPEG, "-hide_banner", "-hwaccels"],
-                                     capture_output=True, text=True, timeout=10).stdout
+                                     capture_output=True, text=True, timeout=10,
+                                     **POPEN_KW).stdout
                 ok = "videotoolbox" in out.split()
             except Exception:
                 ok = False
@@ -151,7 +184,7 @@ def hwdec_available():
 def available_encoders():
     try:
         out = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
-                             capture_output=True, text=True).stdout
+                             capture_output=True, text=True, **POPEN_KW).stdout
     except Exception:
         return set()
     return {line.split()[1] for line in out.splitlines()
@@ -216,11 +249,11 @@ MP4_AUDIO_OK = {"aac", "mp3", "ac3", "eac3", "alac", "opus", "flac"}
 
 def probe(path):
     if not FFPROBE:
-        raise RuntimeError("ffprobe not found – run 'brew install ffmpeg'.")
+        raise RuntimeError("ffprobe not found – install ffmpeg (see README).")
     out = subprocess.run(
         [FFPROBE, "-v", "error", "-print_format", "json",
          "-show_format", "-show_streams", path],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", **POPEN_KW)
     if out.returncode != 0:
         raise RuntimeError(f"ffprobe: {out.stderr.strip() or 'unreadable file'}")
     data = json.loads(out.stdout)
@@ -305,7 +338,7 @@ def thumbnail_png(path, duration, w=288, h=162, t=None):
                "-frames:v", "1",
                "-vf", f"scale=w={w}:h={h}:force_original_aspect_ratio=decrease",
                "-f", "image2pipe", "-c:v", "png", "pipe:1"]
-        r = subprocess.run(cmd, capture_output=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, timeout=60, **POPEN_KW)
         if r.returncode == 0 and r.stdout:
             return r.stdout
         if attempt <= 0:
@@ -580,7 +613,8 @@ class Job:
     def _run(self, cmd, duration, frac_from, frac_to):
         self.log("$ " + " ".join(_q(c) for c in cmd))
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     text=True, bufsize=1)
+                                     text=True, encoding="utf-8", errors="replace",
+                                     bufsize=1, **POPEN_KW)
         err_tail = []
 
         def read_err():
@@ -719,7 +753,7 @@ TIPS = {
              "size – ideal when the size limit is tight – but encodes slower.\n\n"
              "x264 / x265: 2-pass encoding, hits the size precisely.\n"
              "Apple hardware (VideoToolbox): much faster, slightly lower quality per MB, "
-             "size less precise.\n"
+             "size less precise (macOS only).\n"
              "H.264 is the most compatible choice if the file is also used outside Vimeo.",
     "preset": "Speed vs. efficiency for x264/x265. Slower presets give better quality at the "
               "same file size.\n'medium' is a good balance for x265; 'slow' looks slightly better "
@@ -851,7 +885,7 @@ def run_gui():
     fam = base.actual("family")
     F = {
         "base": (fam, 13), "small": (fam, 11), "bold": (fam, 13, "bold"),
-        "h1": (fam, 20, "bold"), "h2": (fam, 12, "bold"), "mono": ("Menlo", 11),
+        "h1": (fam, 20, "bold"), "h2": (fam, 12, "bold"), "mono": (tkfont.nametofont("TkFixedFont").actual("family"), 11),
     }
     base.configure(size=13)
     Tooltip.font = F["small"]
@@ -1317,15 +1351,15 @@ def run_gui():
     field(vc, 4, "Frame rate", combo(vc, V["fps"], FPS_CHOICES), "fps")
     chk = ttk.Frame(vc, style="Panel.TFrame")
     chk.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
-    for r, (key, txt) in enumerate((("vcap", "Cap at Vimeo's recommended bitrate"),
-                                    ("scap", "Never exceed source bitrate"),
-                                    ("ten", "10-bit colour"),
-                                    ("hwdec", "Hardware decoding (Apple)"))):
+    checks = [("vcap", "Cap at Vimeo's recommended bitrate"),
+              ("scap", "Never exceed source bitrate"),
+              ("ten", "10-bit colour")]
+    if IS_MAC:   # VideoToolbox decoding only exists on macOS
+        checks.append(("hwdec", "Hardware decoding (Apple)"))
+    for r, (key, txt) in enumerate(checks):
         cb = ttk.Checkbutton(chk, text=txt, variable=V[key])
         cb.grid(row=r, column=0, sticky="w", pady=2)
         Tooltip(cb, TIPS[key])
-        if key == "hwdec" and sys.platform != "darwin":
-            cb.state(["disabled"])
 
     ac = card(sets, "Audio")
     ac.grid(row=0, column=2, sticky="nsew")
@@ -1635,7 +1669,7 @@ def run_gui():
             return
         if s.codec not in available_encoders():
             messagebox.showerror("Codec", f"Your ffmpeg doesn't support '{s.codec}'. "
-                                 "Pick another codec or install ffmpeg via Homebrew.")
+                                 "Pick another codec or install a full ffmpeg build (see README).")
             return
         bad = [os.path.basename(items[i]["path"]) for i in todo if plan_for(i, s)[1]]
         if bad:
@@ -1665,32 +1699,50 @@ def run_gui():
     start_btn.config(command=start)
     stop_btn.config(command=stop)
 
+    def ffmpeg_install_cmd():
+        """(command, description) for installing ffmpeg here, or (None, manual hint)."""
+        if IS_MAC:
+            brew = find_tool("brew")
+            if brew:
+                return [brew, "install", "ffmpeg"], "Homebrew"
+            return None, ("Homebrew isn't installed. Launch 'Common Shrew.command' instead – it "
+                          "offers to install Homebrew and ffmpeg – or see https://brew.sh")
+        if IS_WIN:
+            winget = shutil.which("winget")
+            if winget:
+                return [winget, "install", "--id", "Gyan.FFmpeg", "-e",
+                        "--accept-source-agreements", "--accept-package-agreements"], "winget"
+            return None, ("winget isn't available. Download ffmpeg from "
+                          "https://www.gyan.dev/ffmpeg/builds/ and add its bin folder to PATH.")
+        return None, ("Install ffmpeg with your package manager, e.g.\n\n"
+                      "  sudo apt install ffmpeg\n  sudo dnf install ffmpeg\n"
+                      "  sudo pacman -S ffmpeg\n\nor start 'common-shrew.sh', which offers to "
+                      "do it for you.")
+
     def install_ffmpeg():
-        brew = find_tool("brew")
-        if not brew:
-            messagebox.showerror(
-                "Homebrew missing",
-                "ffmpeg is installed via Homebrew, which isn't installed.\n\n"
-                "Launch 'Common Shrew.command' by double-click instead – it offers to "
-                "install Homebrew and ffmpeg.")
+        cmd, how = ffmpeg_install_cmd()
+        if not cmd:
+            messagebox.showinfo("Install ffmpeg", how)
             return
         start_btn.config(state="disabled")
         if not state["log_open"]:
             toggle_log()
-        msgs.put(("log", "Installing ffmpeg via Homebrew … (this can take a few minutes)"))
+        msgs.put(("log", f"Installing ffmpeg via {how} … (this can take a few minutes)"))
         status.config(text="Installing ffmpeg…")
 
         def work():
             global FFMPEG, FFPROBE
             env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1")
-            p = subprocess.Popen([brew, "install", "ffmpeg"], stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, env=env)
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, encoding="utf-8", errors="replace", env=env,
+                                 **POPEN_KW)
             for line in p.stdout:
                 msgs.put(("log", "  " + line.rstrip()))
             p.wait()
             FFMPEG, FFPROBE = find_tool("ffmpeg"), find_tool("ffprobe")
             ok = p.returncode == 0 and FFMPEG and FFPROBE
-            msgs.put(("log", "✓ ffmpeg installed." if ok else "✗ Installation failed."))
+            msgs.put(("log", "✓ ffmpeg installed." if ok else
+                      "✗ Installation failed – or ffmpeg isn't on PATH yet: restart the app."))
             msgs.put(("done", None))
         threading.Thread(target=work, daemon=True).start()
 
@@ -1778,7 +1830,7 @@ def run_gui():
     pump()
     if not FFMPEG or not FFPROBE:
         root.after(300, lambda: messagebox.askyesno(
-            "ffmpeg missing", "ffmpeg/ffprobe were not found.\n\nInstall now via Homebrew?")
+            "ffmpeg missing", "ffmpeg/ffprobe were not found.\n\nInstall it now?")
             and install_ffmpeg())
     # files passed on the command line (e.g. dropped on the launcher)
     args = [a for a in sys.argv[1:] if os.path.exists(a)]
