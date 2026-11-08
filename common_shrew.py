@@ -1361,8 +1361,15 @@ def run_gui():
         cb.grid(row=r, column=0, sticky="w", pady=2)
         Tooltip(cb, TIPS[key])
 
-    ac = card(sets, "Audio")
-    ac.grid(row=0, column=2, sticky="nsew")
+    # right column: two separate panels stacked – Audio on top, Advanced below
+    rcol = ttk.Frame(sets)
+    rcol.grid(row=0, column=2, sticky="nsew")
+    rcol.columnconfigure(0, weight=1)
+    rcol.rowconfigure(1, weight=1)
+    lab_w = tkfont.Font(font=F["base"]).measure("Extra ffmpeg args") + 12  # aligns both panels
+    ac = card(rcol, "Audio")
+    ac.grid(row=0, column=0, sticky="nsew", pady=(0, 12))
+    ac.columnconfigure(0, minsize=lab_w)
     ac.columnconfigure(1, weight=1)
     acb = ttk.Checkbutton(ac, text="Don't compress audio", variable=V["acopy"])
     acb.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
@@ -1382,15 +1389,17 @@ def run_gui():
         update_output_labels()
     V["acopy"].trace_add("write", audio_state)
 
-    ttk.Label(ac, text="ADVANCED", style="H2.TLabel").grid(row=4, column=0, columnspan=2,
-                                                           sticky="w", pady=(12, 6))
-    field(ac, 5, "Deinterlace", combo(ac, V["deint"], ["Auto", "On", "Off"]), "deint")
-    gf = ttk.Frame(ac, style="Panel.TFrame")
+    adv = card(rcol, "Advanced")
+    adv.grid(row=1, column=0, sticky="nsew")
+    adv.columnconfigure(0, minsize=lab_w)
+    adv.columnconfigure(1, weight=1)
+    field(adv, 1, "Deinterlace", combo(adv, V["deint"], ["Auto", "On", "Off"]), "deint")
+    gf = ttk.Frame(adv, style="Panel.TFrame")
     ttk.Spinbox(gf, from_=0.5, to=10, increment=0.5, textvariable=V["gop"], width=5,
                 font=F["base"], justify="right").pack(side="left")
     ttk.Label(gf, text="s", style="Panel.TLabel").pack(side="left", padx=(6, 0))
-    field(ac, 6, "Keyframe every", gf, "gop")
-    field(ac, 7, "Extra ffmpeg args", ttk.Entry(ac, textvariable=V["extra"], width=12,
+    field(adv, 2, "Keyframe every", gf, "gop")
+    field(adv, 3, "Extra ffmpeg args", ttk.Entry(adv, textvariable=V["extra"], width=12,
           font=F["base"]), "extra")
 
     # --- progress, log, actions

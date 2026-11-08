@@ -90,6 +90,10 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
    - `Tooltip`: light colours. On macOS it uses `MacWindowStyle help` instead of
      `overrideredirect`, because the latter rendered black there.
    - Drag & drop is optional via `tkinterdnd2`; the app falls back to plain `tk.Tk()`.
+   - Settings layout:
+     - Output, Video, then a right column with two separate stacked panels (Audio on top,
+       Advanced below).
+     - Both panels share a fixed label-column width (`lab_w`), so their fields line up.
    - The x264/x265 preset is a snapping `ttk.Scale` (ultrafast … veryslow) bound to
      `V["preset"]`. It is disabled for VideoToolbox codecs.
 7. **CLI:** `python3 common_shrew.py --cli …`, with `--dry-run` to print the plan and the
