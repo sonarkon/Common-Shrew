@@ -1,0 +1,22 @@
+# local Python environment created by the launcher (drag & drop support)
+.venv/
+__pycache__/
+*.pyc
+
+# launcher preference flags
+.use_system_tk
+.no_dnd
+
+# macOS
+.DS_Store
+
+# never commit videos
+*.mov
+*.mp4
+*.m4v
+*.mxf
+*.mkv
+*.avi
+*.mts
+*.m2ts
+*.webm
