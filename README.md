@@ -11,7 +11,7 @@ recommended compression settings.
 > Named after *Sorex araneus*, the [common shrew](https://en.wikipedia.org/wiki/Common_shrew). To survive winter it shrinks its body by
 > about 18 %, its skull by around 15 % and its brain by up to 20–30 %, then grows back in
 > spring ([Dehnel's phenomenon](https://en.wikipedia.org/wiki/Dehnel%27s_phenomenon)).
-> Your originals stay untouched.
+> This shrinks your files to conform to arbitrary limits. Your originals stay untouched.
 
 ## Features
 
