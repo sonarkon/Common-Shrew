@@ -1,0 +1,51 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:Fraunces;font-weight:600;src:url(node_modules/@fontsource/fraunces/files/fraunces-latin-600-normal.woff2)}
+@font-face{font-family:Fraunces;font-weight:400;font-style:italic;src:url(node_modules/@fontsource/fraunces/files/fraunces-latin-400-italic.woff2)}
+@font-face{font-family:Inter;font-weight:400;src:url(node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2)}
+@font-face{font-family:Inter;font-weight:500;src:url(node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2)}
+@font-face{font-family:Inter;font-weight:600;src:url(node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2)}
+:root{--bg:#17181b;--panel:#212226;--fg:#ececee;--muted:#9a9ca3;--accent:#3d8bfd;--ok:#44c486;--paper:#f2ead8;--ink:#2a241b}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1280px;height:640px;background:var(--bg);overflow:hidden}
+body{font-family:Inter,sans-serif;color:var(--fg);position:relative;
+ background:radial-gradient(900px 520px at 78% 40%,#23324a 0%,rgba(23,24,27,0) 60%),var(--bg)}
+.left{position:absolute;left:84px;top:96px;width:560px}
+.over{font:600 15px Inter;letter-spacing:.2em;color:var(--accent)}
+h1{font:600 92px/0.98 Fraunces,serif;letter-spacing:-.02em;margin-top:18px}
+.tag{font:400 25px/1.4 Inter;color:#c9cad0;margin-top:22px;max-width:520px}
+.meter{margin-top:46px;width:500px}
+.row{display:flex;align-items:center;gap:14px;margin-top:12px;font:500 17px Inter;color:var(--muted)}
+.bar{height:14px;border-radius:7px}
+.b1{width:340px;background:#3a3c44}
+.b2{width:242px;background:linear-gradient(90deg,var(--accent),#6aa8ff)}
+.row b{color:var(--fg);font-weight:600}
+.pill{margin-left:6px;font:600 14px Inter;color:var(--ok);background:rgba(68,196,134,.12);
+ padding:4px 10px;border-radius:20px}
+.card{position:absolute;right:76px;top:118px;width:500px;padding:26px 26px 18px;background:var(--paper);
+ border-radius:14px;box-shadow:0 30px 70px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);transform:rotate(-1.6deg)}
+.card img{display:block;width:100%;mix-blend-mode:multiply;filter:contrast(1.08)}
+.cap{margin-top:12px;font:italic 400 19px Fraunces,serif;color:var(--ink);display:flex;justify-content:space-between}
+.cap span:last-child{font:500 13px Inter;color:#7d725f;font-style:normal;align-self:center}
+.foot{position:absolute;left:84px;right:76px;bottom:34px;display:flex;justify-content:space-between;
+ font:400 13px Inter;color:#73757c}
+.foot b{color:#a9abb2;font-weight:500}
+.credit{position:absolute;right:76px;top:452px;width:520px;text-align:right;font:400 12.5px/1.45 Inter;color:#6f7178}
+</style></head><body>
+<div class="left">
+  <div class="over">VIDEO COMPRESSOR FOR macOS</div>
+  <h1>Common<br>Shrew</h1>
+  <p class="tag">Shrinks videos to a target size – tuned to Vimeo's upload specs.</p>
+  <div class="meter">
+    <div class="row"><div class="bar b1"></div><b>6.88 GB</b> source</div>
+    <div class="row"><div class="bar b2"></div><b>4.90 GB</b> output <span class="pill">−29 %</span></div>
+  </div>
+</div>
+<div class="card">
+  <img src="shrew.jpg" alt="">
+  <div class="cap"><span>Sorex araneus – shrinks to survive winter</span><span>up to −20 %</span></div>
+</div>
+<div class="foot">
+  <span><b>github.com/sonarkon/Common-Shrew</b> · MIT · H.265 2-pass · drag &amp; drop</span>
+</div>
+<div class="credit">Illustration: C. Butterworth, <i>Encyclopædia Britannica</i>, 9th ed., vol. XXI (1886)<br>Public domain · via Wikimedia Commons (EB9_Shrew.jpg)</div>
+</body></html>

@@ -1,5 +1,7 @@
 # Common Shrew
 
+![Common Shrew – shrinks videos to a target size](docs/social-preview.png)
+
 **Shrinks videos to a target size – tuned to Vimeo's upload specs.**
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
@@ -94,6 +96,13 @@ Common Shrew is free. If it saves you time, you can buy me a coffee:
 
 Common Shrew calls [ffmpeg](https://ffmpeg.org) as an external program. ffmpeg is not
 bundled and has its own (L)GPL licence.
+
+## Artwork
+
+The shrew illustration on the banner is an engraving by C. Butterworth from the
+*Encyclopædia Britannica*, 9th ed., vol. XXI (1886). It is in the public domain and comes
+from [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:EB9_Shrew.jpg). See
+[docs/banner](docs/banner/) for how to rebuild the banner.
 
 ## Sources
 

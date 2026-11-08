@@ -23,3 +23,7 @@ __pycache__/
 
 # test clips from tools/make_samples.sh
 samples/
+
+# banner build deps
+node_modules/
+package-lock.json
