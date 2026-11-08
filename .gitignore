@@ -20,3 +20,6 @@ __pycache__/
 *.mts
 *.m2ts
 *.webm
+
+# test clips from tools/make_samples.sh
+samples/

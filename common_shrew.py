@@ -616,7 +616,7 @@ def fmt_size(b):
 # --------------------------------------------------------------------------
 
 APP_NAME = "Common Shrew"
-WIKI_URL = "https://en.wikipedia.org/wiki/Dehnel%27s_phenomenon"
+WIKI_URL = "https://en.wikipedia.org/wiki/Common_shrew"
 
 TIPS = {
     "title": "Common Shrew is named after Sorex araneus, the common shrew: to survive winter it "
