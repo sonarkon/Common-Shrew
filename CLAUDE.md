@@ -26,7 +26,7 @@ README and commit messages are **English**.
 | `tools/make_samples.sh` | Generates synthetic test clips (PCM audio, 120 fps without audio, scope, portrait) into `samples/` |
 | `tools/gui_screenshot.py` | Headless GUI smoke test plus screenshot |
 | `docs/screenshot.png` | Screenshot used in the README |
-| `docs/header.jpg` | README header banner, 1280×400 rendered at 2× (from `docs/banner/header.html`) |
+| `docs/header.jpg` | README header banner, 1280×400 rendered at 2× (from `docs/banner/header.html`). Both banners use the light "book page" style: paper `#fefeca`, black text and rust accent. Keep the project's banners in this style; the app itself stays dark |
 | `docs/social-preview.png` | GitHub social preview banner, 1280×640. Built from `docs/banner/` (HTML + Playwright); the shrew engraving is public domain (EB9, 1886) and its credit must stay on the banner and in the README |
 
 Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_system_tk` and
@@ -91,9 +91,12 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      `overrideredirect`, because the latter rendered black there.
    - Drag & drop is optional via `tkinterdnd2`; the app falls back to plain `tk.Tk()`.
    - Settings layout:
-     - Output, Video, then a right column with two separate stacked panels (Audio on top,
-       Advanced below).
-     - Both panels share a fixed label-column width (`lab_w`), so their fields line up.
+     - Three equal columns (`uniform`): left Output above Advanced, middle Video, right
+       Audio above Save.
+     - All panels share the label-column width `lab_w`, so their fields line up.
+     - The platform preset is its own full-width row ("Platform"), because next to the
+       target size it got clipped.
+     - The default window is 1320 px wide.
    - The x264/x265 preset is a snapping `ttk.Scale` (ultrafast … veryslow) bound to
      `V["preset"]`. It is disabled for VideoToolbox codecs.
 7. **CLI:** `python3 common_shrew.py --cli …`, with `--dry-run` to print the plan and the
@@ -113,7 +116,7 @@ python3 common_shrew.py --cli samples/pcm24.mov --size 3MB --copy-audio  # expec
 
 # GUI
 .venv/bin/python common_shrew.py samples/*
-xvfb-run -a -s "-screen 0 1220x930x24" .venv/bin/python tools/gui_screenshot.py /tmp/s.png samples/*
+xvfb-run -a -s "-screen 0 1320x930x24" .venv/bin/python tools/gui_screenshot.py /tmp/s.png samples/*
 ```
 - Check the result sizes stay ≤ target. Two-pass x264/x265 should land within the 2 %
   margin.

@@ -780,8 +780,8 @@ TIPS = {
            "HDR sources (PQ / HLG) always use 10-bit.",
     "suffix": "Text appended to the original file name. The output is always MP4 "
               "(or MOV when original PCM audio is kept).",
-    "outdir": "Where the compressed files are saved. By default next to each source file. "
-              "'Choose…' picks one folder for all files, '×' resets to next-to-source.",
+    "outdir": "Where the compressed files are saved – by default next to each source file. "
+              "Click to pick one folder for all files; '×' resets to next-to-source.",
     "acopy": "Keep the original audio track bit-for-bit instead of re-encoding it to AAC. "
              "Best quality, but it uses more of the size budget (uncompressed PCM ≈ 2.3 Mbps "
              "for 48 kHz / 24-bit stereo) – the video bitrate is reduced accordingly.\n\n"
@@ -792,7 +792,7 @@ TIPS = {
              "Speeds up both passes – especially for HEVC and ProRes sources – and leaves more "
              "CPU for the encoder. The image is identical; unsupported formats fall back to "
              "software automatically, and a failed run is retried without it. macOS only.",
-    "extra": "Additional ffmpeg output options, e.g.  -tune film  or  -metadata title=\"My Film\".\n"
+    "extra": "Extra ffmpeg output options, e.g.  -tune film  or  -metadata title=\"My Film\".\n"
              "For experts – applied to the final pass.",
 }
 
@@ -876,7 +876,8 @@ def run_gui():
         dnd = False
 
     root.title(APP_NAME)
-    root.geometry(f"1220x{min(930, root.winfo_screenheight() - 70)}")
+    root.geometry(f"{min(1320, root.winfo_screenwidth() - 40)}x"
+                  f"{min(930, root.winfo_screenheight() - 70)}")
     root.minsize(980, 720)
     root.configure(bg=C["bg"])
 
@@ -1204,9 +1205,8 @@ def run_gui():
     # --- settings
     sets = ttk.Frame(outer)
     sets.grid(row=2, column=0, sticky="we", pady=(12, 0))
-    sets.columnconfigure(0, weight=5, minsize=400)
-    sets.columnconfigure(1, weight=4)
-    sets.columnconfigure(2, weight=4)
+    for i in range(3):
+        sets.columnconfigure(i, weight=1, uniform="sets")
 
     def field(parent, r, label, widget, tip, c=0):
         lab = ttk.Label(parent, text=label, style="Panel.TLabel")
@@ -1220,13 +1220,31 @@ def run_gui():
         return ttk.Combobox(parent, textvariable=var, values=values, width=width,
                             state="readonly" if ro else "normal", font=F["base"])
 
-    oc = card(sets, "Output")
-    oc.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-    oc.columnconfigure(1, weight=1)
+    # left column: Output (size) above Advanced · right column: Audio above Save
+    _lf = tkfont.Font(font=F["base"])
+    lab_w = max(_lf.measure(t) for t in ("Target size", "Platform", "Safety margin", "Deinterlace",
+                                          "Keyframe every", "ffmpeg args", "Bitrate (kbps)",
+                                          "Channels", "Save to", "Name suffix")) + 14
+    lcol = ttk.Frame(sets)
+    lcol.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+    rcol = ttk.Frame(sets)
+    rcol.grid(row=0, column=2, sticky="nsew")
+    for col in (lcol, rcol):
+        col.columnconfigure(0, weight=1)
+        col.rowconfigure(1, weight=1)
+
+    def panel(parent, title, row):
+        f = card(parent, title)
+        f.grid(row=row, column=0, sticky="nsew", pady=(0, 12) if row == 0 else 0)
+        f.columnconfigure(0, minsize=lab_w)
+        f.columnconfigure(1, weight=1)
+        return f
+
+    oc = panel(lcol, "Output", 0)
 
     # target size: [ 5 ] [GB ▾] [Presets ▾]
     tf = ttk.Frame(oc, style="Panel.TFrame")
-    te = ttk.Entry(tf, textvariable=V["target"], width=7, font=F["base"], justify="right")
+    te = ttk.Entry(tf, textvariable=V["target"], width=5, font=F["base"], justify="right")
     te.grid(row=0, column=0, sticky="w")
     uc = combo(tf, V["unit"], ["GB", "MB"], 3)
     uc.grid(row=0, column=1, sticky="w", padx=(6, 0))
@@ -1241,8 +1259,7 @@ def run_gui():
         V["unit"].set(unit)
     for label in SIZE_PRESETS:
         pm.add_command(label=label, command=lambda l=label: apply_preset(l))
-    mb = ttk.Menubutton(tf, text="", menu=pm, style="Small.TMenubutton", width=17)
-    mb.grid(row=0, column=3, sticky="e", padx=(8, 0))
+    mb = ttk.Menubutton(oc, text="", menu=pm, style="Small.TMenubutton")
 
     def update_preset_btn(*_):
         key = f'{V["target"].get().strip().replace(",", ".")} {V["unit"].get()}'
@@ -1255,46 +1272,45 @@ def run_gui():
     V["target"].trace_add("write", update_preset_btn)
     V["unit"].trace_add("write", update_preset_btn)
     update_preset_btn()
-    Tooltip(mb, TIPS["target"])
     field(oc, 1, "Target size", tf, "target")
+    field(oc, 2, "Platform", mb, "target")
 
     # safety margin: [2.0] %
     sfm = ttk.Frame(oc, style="Panel.TFrame")
     ttk.Spinbox(sfm, from_=0, to=20, increment=0.5, textvariable=V["safety"], width=5,
                 font=F["base"], justify="right").pack(side="left")
     ttk.Label(sfm, text="%", style="Panel.TLabel").pack(side="left", padx=(6, 0))
-    field(oc, 2, "Safety margin", sfm, "safety")
-
-    ttk.Separator(oc).grid(row=3, column=0, columnspan=2, sticky="we", pady=8)
+    field(oc, 3, "Safety margin", sfm, "safety")
 
     # save to: [Next to source file]  [Choose…] [×]
-    of = ttk.Frame(oc, style="Panel.TFrame")
+    sv = panel(rcol, "Save", 1)
+    of = ttk.Frame(sv, style="Panel.TFrame")
     of.columnconfigure(0, weight=1)
-    dir_lbl = ttk.Label(of, text="", style="Panel.TLabel", width=12, anchor="w")
+    # one button that shows the current target and opens the folder picker
+    dir_lbl = ttk.Button(of, text="", style="Small.TButton", command=lambda: V["outdir"].set(
+        filedialog.askdirectory() or V["outdir"].get()))
     dir_lbl.grid(row=0, column=0, sticky="we")
     dir_tip = Tooltip(dir_lbl, TIPS["outdir"])
-    ttk.Button(of, text="Choose…", style="Small.TButton", command=lambda: V["outdir"].set(
-        filedialog.askdirectory() or V["outdir"].get())).grid(row=0, column=1, padx=(6, 0))
     reset_btn = ttk.Button(of, text="×", width=2, style="Small.TButton",
                            command=lambda: V["outdir"].set(""))
     reset_btn.grid(row=0, column=2, padx=(4, 0))
-    field(oc, 4, "Save to", of, "outdir")
+    field(sv, 1, "Save to", of, "outdir")
 
     # file name: [_vimeo]  + example
-    field(oc, 5, "Name suffix", ttk.Entry(oc, textvariable=V["suffix"], width=10,
+    field(sv, 2, "Name suffix", ttk.Entry(sv, textvariable=V["suffix"], width=10,
                                           font=F["base"]), "suffix")
-    name_ex = ttk.Label(oc, text="", style="Muted.TLabel")
-    name_ex.grid(row=6, column=1, sticky="w", pady=(0, 2))
+    name_ex = ttk.Label(sv, text="", style="Muted.TLabel")
+    name_ex.grid(row=3, column=1, sticky="w", pady=(0, 2))
 
     def update_output_labels(*_):
         d = V["outdir"].get()
         if d:
-            dir_lbl.config(text="📁 " + (os.path.basename(d.rstrip("/")) or d),
-                           foreground=C["fg"])
+            name = os.path.basename(d.rstrip("/\\")) or d
+            dir_lbl.config(text="📁 " + (name if len(name) <= 16 else name[:15] + "…"))
             dir_tip.text = d
             reset_btn.state(["!disabled"])
         else:
-            dir_lbl.config(text="Next to source", foreground=C["muted"])
+            dir_lbl.config(text="Next to source…")
             dir_tip.text = TIPS["outdir"]
             reset_btn.state(["disabled"])
         ext = ".mp4"
@@ -1361,16 +1377,7 @@ def run_gui():
         cb.grid(row=r, column=0, sticky="w", pady=2)
         Tooltip(cb, TIPS[key])
 
-    # right column: two separate panels stacked – Audio on top, Advanced below
-    rcol = ttk.Frame(sets)
-    rcol.grid(row=0, column=2, sticky="nsew")
-    rcol.columnconfigure(0, weight=1)
-    rcol.rowconfigure(1, weight=1)
-    lab_w = tkfont.Font(font=F["base"]).measure("Extra ffmpeg args") + 12  # aligns both panels
-    ac = card(rcol, "Audio")
-    ac.grid(row=0, column=0, sticky="nsew", pady=(0, 12))
-    ac.columnconfigure(0, minsize=lab_w)
-    ac.columnconfigure(1, weight=1)
+    ac = panel(rcol, "Audio", 0)
     acb = ttk.Checkbutton(ac, text="Don't compress audio", variable=V["acopy"])
     acb.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 4))
     Tooltip(acb, TIPS["acopy"])
@@ -1389,17 +1396,14 @@ def run_gui():
         update_output_labels()
     V["acopy"].trace_add("write", audio_state)
 
-    adv = card(rcol, "Advanced")
-    adv.grid(row=1, column=0, sticky="nsew")
-    adv.columnconfigure(0, minsize=lab_w)
-    adv.columnconfigure(1, weight=1)
+    adv = panel(lcol, "Advanced", 1)
     field(adv, 1, "Deinterlace", combo(adv, V["deint"], ["Auto", "On", "Off"]), "deint")
     gf = ttk.Frame(adv, style="Panel.TFrame")
     ttk.Spinbox(gf, from_=0.5, to=10, increment=0.5, textvariable=V["gop"], width=5,
                 font=F["base"], justify="right").pack(side="left")
     ttk.Label(gf, text="s", style="Panel.TLabel").pack(side="left", padx=(6, 0))
     field(adv, 2, "Keyframe every", gf, "gop")
-    field(adv, 3, "Extra ffmpeg args", ttk.Entry(adv, textvariable=V["extra"], width=12,
+    field(adv, 3, "ffmpeg args", ttk.Entry(adv, textvariable=V["extra"], width=12,
           font=F["base"]), "extra")
 
     # --- progress, log, actions
