@@ -248,19 +248,50 @@ def probe(path):
     )
 
 
-SCRUB_FRAMES = 12   # hover-scrub frames per clip
+SCRUB_FRAMES = 60   # max. hover-scrub frames per clip (first … last frame)
+SCRUB_WORKERS = 3   # parallel ffmpeg calls while extracting them
+
+
+def scrub_times(duration, fps):
+    """Evenly spaced timestamps from the first to the (almost) last frame."""
+    fps = fps or 25.0
+    n = max(2, min(SCRUB_FRAMES, int(duration * fps)))
+    last = max(0.0, duration - 1.5 / fps)
+    return [last * i / (n - 1) for i in range(n)]
+
+
+def scrub_order(n):
+    """Coarse-to-fine order (ends, middle, quarters, …) so coverage is even early on."""
+    out, seen, step = [], set(), n - 1
+    for i in (0, n - 1):
+        out.append(i)
+        seen.add(i)
+    while step >= 1:
+        for i in range(0, n, step):
+            if i not in seen:
+                out.append(i)
+                seen.add(i)
+        step //= 2
+    out += [i for i in range(n) if i not in seen]
+    return out
 
 
 def thumbnail_png(path, duration, w=288, h=162, t=None):
     """Grab one frame (default ~10 % in) as PNG bytes, fitted into w×h."""
     if t is None:
         t = duration * 0.1
-    t = min(max(t, 0), max(duration - 0.5, 0))
-    cmd = [FFMPEG, "-v", "error", "-nostdin", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
-           "-vf", f"scale=w={w}:h={h}:force_original_aspect_ratio=decrease",
-           "-f", "image2pipe", "-c:v", "png", "pipe:1"]
-    r = subprocess.run(cmd, capture_output=True, timeout=60)
-    return r.stdout if r.returncode == 0 and r.stdout else None
+    t = min(max(t, 0.0), max(duration, 0.0))
+    for attempt in (t, t - 0.25, t - 1.0):   # seeking right at the end may yield nothing
+        cmd = [FFMPEG, "-v", "error", "-nostdin", "-ss", f"{max(attempt, 0):.3f}", "-i", path,
+               "-frames:v", "1",
+               "-vf", f"scale=w={w}:h={h}:force_original_aspect_ratio=decrease",
+               "-f", "image2pipe", "-c:v", "png", "pipe:1"]
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+        if r.returncode == 0 and r.stdout:
+            return r.stdout
+        if attempt <= 0:
+            break
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -348,11 +379,11 @@ def make_plan(info, s: Settings):
         out_fps = info.fps
         if out_fps <= 61 and (info.vfr or not any(abs(out_fps - f) < 0.01 for f in STANDARD_FPS)):
             snapped = min(STANDARD_FPS, key=lambda f: abs(f - out_fps))
-            notes.append(f"Variable/unusual frame rate {out_fps:.3f} → constant {snapped}.")
+            notes.append(f"Variable/unusual frame rate {fmt_fps(out_fps)} → constant {fmt_fps(snapped)} fps.")
             out_fps = snapped
     if out_fps > 60.01:
         new = out_fps / math.ceil(out_fps / 60.01)
-        notes.append(f"{out_fps:.2f} fps exceeds Vimeo's 60 fps → reduced to {new:.3f}.")
+        notes.append(f"{fmt_fps(out_fps)} fps exceeds Vimeo's 60 fps → reduced to {fmt_fps(new)} fps.")
         out_fps = new
 
     if s.audio_channels == "Stereo":
@@ -560,8 +591,8 @@ class Job:
         plan = make_plan(info, self.s)
         out = output_path(self.path, self.s, info)
         self.log(f"▶ {os.path.basename(self.path)}")
-        self.log(f"  {fmt_dur(info.duration)}, {info.width}×{info.height} @ {info.fps:.3f} fps "
-                 f"→ {plan.out_w}×{plan.out_h} @ {plan.out_fps:.3f} fps")
+        self.log(f"  {fmt_dur(info.duration)}, {info.width}×{info.height} @ {fmt_fps(info.fps)} fps "
+                 f"→ {plan.out_w}×{plan.out_h} @ {fmt_fps(plan.out_fps)} fps")
         self.log(f"  video {plan.video_kbps/1000:.2f} Mbps · audio {plan.audio_kbps} kbps "
                  f"({'5.1' if plan.audio_ch == 6 else 'stereo'}) · est. {fmt_size(plan.est_bytes)}")
         for n in plan.notes:
@@ -610,6 +641,13 @@ def fmt_dur(sec):
     h, r = divmod(int(sec), 3600)
     m, s = divmod(r, 60)
     return f"{h}:{m:02d}:{s:02d}"
+
+
+def fmt_fps(f):
+    """25.0 -> '25', 29.97003 -> '29.97', 23.976 -> '23.976'."""
+    if abs(f - round(f)) < 0.005:
+        return str(int(round(f)))
+    return f"{f:.3f}".rstrip("0").rstrip(".")
 
 
 def fmt_size(b):
@@ -985,15 +1023,22 @@ def run_gui():
             return
         it["scrub_started"] = True
         path, dur = it["path"], it["info"].duration
+        times = it["scrub_times"] = scrub_times(dur, it["info"].fps)
+        todo = queue.Queue()
+        for i in scrub_order(len(times)):
+            todo.put(i)
 
         def work():
-            for i in range(SCRUB_FRAMES):
-                if iid not in items:
+            while iid in items:
+                try:
+                    i = todo.get_nowait()
+                except queue.Empty:
                     return
-                png = thumbnail_png(path, dur, TW, TH, t=dur * (i + 0.5) / SCRUB_FRAMES)
+                png = thumbnail_png(path, dur, TW, TH, t=times[i])
                 if png:
                     msgs.put(("scrub", iid, i, png))
-        threading.Thread(target=work, daemon=True).start()
+        for _ in range(SCRUB_WORKERS):
+            threading.Thread(target=work, daemon=True).start()
 
     def on_thumb_motion(e):
         iid = current_item()
@@ -1002,24 +1047,25 @@ def run_gui():
         it = items[iid]
         ensure_scrub(iid)
         scrub["hover"] = True
-        frac = min(max(e.x / TW, 0.0), 0.9999)
-        idx = int(frac * SCRUB_FRAMES)
+        times = it.get("scrub_times") or [0.0]
+        n = len(times)
+        frac = min(max(e.x / (TW - 1), 0.0), 1.0)
+        idx = int(round(frac * (n - 1)))      # far left = first frame, far right = last
         frames = it["scrub"]
         # nearest frame that's already extracted
         img = None
-        for d in range(SCRUB_FRAMES):
+        for d in range(n):
             for j in (idx - d, idx + d):
-                if 0 <= j < SCRUB_FRAMES and frames.get(j) is not None:
+                if 0 <= j < n and frames.get(j) is not None:
                     img = frames[j]
                     break
             if img:
                 break
         thumb.itemconfigure(t_img, image=img or it["big"] or blank)
-        thumb.coords(t_bar, 0, TH - 4, (idx + 1) / SCRUB_FRAMES * TW, TH)
+        thumb.coords(t_bar, 0, TH - 4, max(3, frac * TW), TH)
         thumb.itemconfigure(t_bar, state="normal")
         thumb.itemconfigure(t_bar_bg, state="normal")
-        thumb.itemconfigure(t_tc, text=f"{fmt_dur(it['info'].duration * (idx + 0.5) / SCRUB_FRAMES)}"
-                            f" / {fmt_dur(it['info'].duration)}")
+        thumb.itemconfigure(t_tc, text=f"{fmt_dur(times[idx])} / {fmt_dur(it['info'].duration)}")
         _boxed(t_tc, t_tc_bg, True)
         _boxed(t_hint, t_hint_bg, False)
 
@@ -1161,7 +1207,6 @@ def run_gui():
     field(vc, 1, "Codec", combo(vc, V["codec"], list(CODECS), 26), "codec")
     # preset slider: ultrafast (0) … veryslow (8)
     pf = ttk.Frame(vc, style="Panel.TFrame")
-    pf.columnconfigure(0, weight=1)
     p_idx = tk.DoubleVar(value=PRESETS.index(V["preset"].get()))
     p_scale = ttk.Scale(pf, from_=0, to=len(PRESETS) - 1, orient="horizontal",
                         variable=p_idx, style="Horizontal.TScale")
@@ -1170,6 +1215,8 @@ def run_gui():
     p_name = ttk.Label(pf, text="", style="Panel.TLabel", font=F["small"])
     p_name.grid(row=1, column=1)
     ttk.Label(pf, text="better", style="Muted.TLabel").grid(row=1, column=2, sticky="e")
+    pf.columnconfigure(0, uniform="ends")
+    pf.columnconfigure(2, uniform="ends")
     pf.columnconfigure(1, weight=1)
 
     def on_preset_slide(*_):
@@ -1301,7 +1348,7 @@ def run_gui():
         iid = tree.insert("", "end", text="  " + os.path.basename(p),
                           values=("…", "…", fmt_size(os.path.getsize(p)), "analysing…", ""))
         items[iid] = dict(path=p, info=None, big=None, small=None, result="", error="",
-                          scrub={}, scrub_started=False)
+                          scrub={}, scrub_started=False, scrub_times=None)
         order.append(iid)
         threading.Thread(target=analyse, args=(iid, p), daemon=True).start()
         return True
@@ -1435,7 +1482,7 @@ def run_gui():
         dw, dh = display_dims(info)
         a = ("no audio" if not info.has_audio else
              f"{info.audio_channels} ch audio")
-        pmeta.config(text=(f"{info.vcodec.upper()} · {dw}×{dh} · {info.fps:.3f} fps"
+        pmeta.config(text=(f"{info.vcodec.upper()} · {dw}×{dh} · {fmt_fps(info.fps)} fps"
                            f"{' (VFR)' if info.vfr else ''}{' · interlaced' if info.interlaced else ''}"
                            f"{' · HDR' if info.hdr else ''}\n"
                            f"{fmt_dur(info.duration)} · {fmt_size(info.size_bytes)} · "
@@ -1444,7 +1491,7 @@ def run_gui():
         if err:
             pplan.config(text="⚠ " + err, foreground=C["warn"])
             return
-        txt = (f"→  {p.out_w}×{p.out_h} · {p.out_fps:.3f} fps\n"
+        txt = (f"→  {p.out_w}×{p.out_h} · {fmt_fps(p.out_fps)} fps\n"
                f"→  video {p.video_kbps/1000:.2f} Mbps · audio {p.audio_kbps} kbps "
                f"{'5.1' if p.audio_ch == 6 else 'stereo'}\n"
                f"→  ≈ {fmt_size(p.est_bytes)}  ({reduction(info.size_bytes, p.est_bytes)})")
@@ -1693,7 +1740,7 @@ def run_cli(argv):
         if a.dry_run:
             info = probe(f)
             plan = make_plan(info, s)
-            print(f"{f}: {plan.out_w}x{plan.out_h} @ {plan.out_fps:.3f}, "
+            print(f"{f}: {plan.out_w}x{plan.out_h} @ {fmt_fps(plan.out_fps)} fps, "
                   f"{plan.video_kbps} kbps, est {fmt_size(plan.est_bytes)}")
             for n in plan.notes:
                 print("  •", n)

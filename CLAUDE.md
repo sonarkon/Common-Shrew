@@ -63,10 +63,14 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
    - Background threads only push messages into a `queue.Queue`; `pump()` applies them on
      the Tk thread. Never touch widgets from a worker thread.
    - Thumbnails: ffmpeg writes PNG to a pipe, base64 → `tk.PhotoImage`. Requires Tk 8.6+.
-   - Preview hover-scrub: the preview is a `tk.Canvas`. On first selection or hover, a
-     worker extracts `SCRUB_FRAMES` (12) evenly spaced frames, which arrive as `("scrub",
-     iid, idx, png)` messages. Mouse x picks the frame; the canvas also draws a position bar
-     and a timecode. While frames are still loading, it shows the nearest loaded frame.
+   - Preview hover-scrub: the preview is a `tk.Canvas`. On first selection or hover,
+     `SCRUB_WORKERS` (3) threads extract up to `SCRUB_FRAMES` (60) frames from the first to
+     the last frame (`scrub_times`).
+     - Frames are extracted coarse-to-fine (`scrub_order`), so coverage is even early on.
+     - They arrive as `("scrub", iid, idx, png)` messages.
+     - Mouse x maps linearly: far left = first frame, far right = last frame.
+     - While frames are loading, the nearest loaded frame is shown.
+   - Display frame rates with `fmt_fps()` (25, 29.97, 23.976 – never "25.000").
    - `Tooltip`: light colours. On macOS it uses `MacWindowStyle help` instead of
      `overrideredirect`, because the latter rendered black there.
    - Drag & drop is optional via `tkinterdnd2`; the app falls back to plain `tk.Tk()`.
