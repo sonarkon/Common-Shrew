@@ -71,6 +71,13 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      - Mouse x maps linearly: far left = first frame, far right = last frame.
      - While frames are loading, the nearest loaded frame is shown.
    - Display frame rates with `fmt_fps()` (25, 29.97, 23.976 – never "25.000").
+   - Queue columns:
+     - Duration, Resolution, Size and Output have fixed widths measured from the real font
+       (`colw`), because macOS fonts run wider.
+     - The file column gets the remaining width (`relabel_rows`), and names are shortened
+       in the middle (`elide`).
+     - Output shows the estimate until encoding starts (`items[iid]["status"]`), then the
+       progress or the result.
    - `Tooltip`: light colours. On macOS it uses `MacWindowStyle help` instead of
      `overrideredirect`, because the latter rendered black there.
    - Drag & drop is optional via `tkinterdnd2`; the app falls back to plain `tk.Tk()`.

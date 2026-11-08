@@ -957,14 +957,52 @@ def run_gui():
     qcard.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
     qcard.columnconfigure(0, weight=1)
     qcard.rowconfigure(1, weight=1)
-    cols = ("dur", "res", "size", "est", "result")
+    cols = ("dur", "res", "size", "out")
     tree = ttk.Treeview(qcard, columns=cols, show="tree headings", selectmode="extended")
     tree.heading("#0", text="  File", anchor="w")
-    tree.column("#0", width=230, minwidth=150, stretch=True)
-    for c, t, w in (("dur", "Duration", 74), ("res", "Resolution", 96), ("size", "Size", 70),
-                    ("est", "Estimate", 128), ("result", "Result", 150)):
+    # column widths from the real font metrics (macOS fonts run wider than Linux ones)
+    fbase = tkfont.Font(font=F["base"])
+    fhead = tkfont.Font(font=F["small"])
+
+    def colw(sample, head):
+        return max(fbase.measure(sample), fhead.measure(head)) + 22
+    tree.column("#0", width=240, minwidth=90, stretch=False)  # sized in relabel_rows()
+    for c, t, sample in (("dur", "Duration", "88:88:88"),
+                         ("res", "Resolution", "8888×8888"),
+                         ("size", "Size", "88.88 GB"),
+                         ("out", "Output", "≈ 88.88 GB (−88 %)")):
         tree.heading(c, text=t, anchor="w")
-        tree.column(c, width=w, minwidth=50, stretch=(c == "result"), anchor="w")
+        w = colw(sample, t)
+        tree.column(c, width=w, minwidth=w, stretch=False, anchor="w")
+
+    def elide(text, px, font):
+        """Shorten in the middle so start, date and extension stay visible."""
+        if font.measure(text) <= px:
+            return text
+        keep_end = min(len(text) // 2, 8)
+        lo, hi = 1, len(text) - keep_end
+        best = text[:1] + "…" + text[-keep_end:]
+        while lo <= hi:   # binary search for the longest head that fits
+            mid = (lo + hi) // 2
+            cand = text[:mid] + "…" + text[-keep_end:]
+            if font.measure(cand) <= px:
+                best, lo = cand, mid + 1
+            else:
+                hi = mid - 1
+        return best
+
+    def relabel_rows(_=None):
+        # the file column gets whatever the fixed columns leave over (min. 90 px)
+        others = sum(int(tree.column(c, "width")) for c in cols)
+        avail = tree.winfo_width() - others - 2
+        if avail > 0:
+            tree.column("#0", width=max(90, avail))
+        # thumbnail (~64 px) + indent are part of the tree column
+        px = max(40, int(tree.column("#0", "width")) - 64 - 32)
+        for i in order:
+            if i in items:
+                tree.item(i, text="  " + elide(os.path.basename(items[i]["path"]), px, fbase))
+    tree.bind("<Configure>", lambda e: root.after_idle(relabel_rows), add="+")
     tree.tag_configure("ok", foreground=C["ok"])
     tree.tag_configure("warn", foreground=C["warn"])
     tree.tag_configure("err", foreground=C["err"])
@@ -1345,11 +1383,13 @@ def run_gui():
         p = os.path.abspath(p)
         if any(items[i]["path"] == p for i in order):
             return False
-        iid = tree.insert("", "end", text="  " + os.path.basename(p),
-                          values=("…", "…", fmt_size(os.path.getsize(p)), "analysing…", ""))
+        iid = tree.insert("", "end", text="",
+                          values=("…", "…", fmt_size(os.path.getsize(p)), "analysing…"))
         items[iid] = dict(path=p, info=None, big=None, small=None, result="", error="",
+                          status=None,   # set once encoding starts: replaces the estimate
                           scrub={}, scrub_started=False, scrub_times=None)
         order.append(iid)
+        root.after_idle(relabel_rows)
         threading.Thread(target=analyse, args=(iid, p), daemon=True).start()
         return True
 
@@ -1439,7 +1479,9 @@ def run_gui():
                 est = f"≈ {fmt_size(p.est_bytes)} ({reduction(it['info'].size_bytes, p.est_bytes)})"
             else:
                 est = "too long ✗"
-            tree.set(iid, "est", est)
+            if not it["status"]:          # estimate only until encoding has started
+                tree.set(iid, "out", est)
+                tree.item(iid, tags=() if p else ("warn",))
         total_lbl.config(text=(f"{len(order)} file(s) · {fmt_size(tot_in)} → "
                                f"≈ {fmt_size(tot_out)} ({reduction(tot_in, tot_out)})")
                          if tot_in else "")
@@ -1470,7 +1512,7 @@ def run_gui():
         if not scrub["hover"]:
             on_thumb_leave()
         ensure_scrub(iid)
-        pname.config(text=os.path.basename(it["path"]))
+        pname.config(text=elide(os.path.basename(it["path"]), TW, tkfont.Font(font=F["bold"])))
         info = it["info"]
         if it["error"]:
             pmeta.config(text=it["error"])
@@ -1492,8 +1534,10 @@ def run_gui():
             pplan.config(text="⚠ " + err, foreground=C["warn"])
             return
         txt = (f"→  {p.out_w}×{p.out_h} · {fmt_fps(p.out_fps)} fps\n"
-               f"→  video {p.video_kbps/1000:.2f} Mbps · audio {p.audio_kbps} kbps "
-               f"{'5.1' if p.audio_ch == 6 else 'stereo'}\n"
+               f"→  video {p.video_kbps/1000:.2f} Mbps\n"
+               f"→  audio {'copy' if settings().audio_copy and info.has_audio else ''}"
+               f"{'' if settings().audio_copy and info.has_audio else str(p.audio_kbps) + ' kbps'}"
+               f" · {'5.1' if p.audio_ch == 6 else 'stereo' if p.audio_ch == 2 else str(p.audio_ch) + ' ch'}\n"
                f"→  ≈ {fmt_size(p.est_bytes)}  ({reduction(info.size_bytes, p.est_bytes)})")
         if it["result"]:
             txt += f"\n\n✓ Done: {it['result']}"
@@ -1620,7 +1664,8 @@ def run_gui():
                     status.config(text=m[2])
                 elif kind == "row":
                     if m[1] in items:
-                        tree.set(m[1], "result", m[2])
+                        items[m[1]]["status"] = m[2]
+                        tree.set(m[1], "out", m[2])
                         tree.item(m[1], tags=(m[3],))
                 elif kind == "info":
                     iid, info = m[1], m[2]
@@ -1634,8 +1679,8 @@ def run_gui():
                     iid = m[1]
                     if iid in items:
                         items[iid]["error"] = m[2]
-                        tree.set(iid, "est", "—")
-                        tree.set(iid, "result", "✗ unreadable")
+                        items[iid]["status"] = "✗ unreadable"
+                        tree.set(iid, "out", "✗ unreadable")
                         tree.item(iid, tags=("err",))
                         show_preview()
                 elif kind == "scrub":
