@@ -833,6 +833,10 @@ def run_gui():
     st.configure("Treeview.Heading", background=C["panel"], foreground=C["muted"],
                  font=F["small"], borderwidth=0, padding=(6, 6))
     st.map("Treeview.Heading", background=[("active", C["panel"])])
+    st.configure("Horizontal.TScale", background=C["accent"], troughcolor=C["field"],
+                 bordercolor=C["panel"], lightcolor=C["accent"], darkcolor=C["accent"],
+                 sliderlength=18, sliderthickness=18, troughrelief="flat", groovewidth=6)
+    st.map("Horizontal.TScale", background=[("disabled", C["line"]), ("active", C["accent_hi"])])
     st.configure("Horizontal.TProgressbar", background=C["accent"], troughcolor=C["field"],
                  bordercolor=C["field"], lightcolor=C["accent"], darkcolor=C["accent"],
                  thickness=8)
@@ -1066,7 +1070,36 @@ def run_gui():
     vc.grid(row=0, column=1, sticky="nsew", padx=(0, 12))
     vc.columnconfigure(1, weight=1)
     field(vc, 1, "Codec", combo(vc, V["codec"], list(CODECS), 26), "codec")
-    field(vc, 2, "Preset", combo(vc, V["preset"], PRESETS), "preset")
+    # preset slider: ultrafast (0) … veryslow (8)
+    pf = ttk.Frame(vc, style="Panel.TFrame")
+    pf.columnconfigure(0, weight=1)
+    p_idx = tk.DoubleVar(value=PRESETS.index(V["preset"].get()))
+    p_scale = ttk.Scale(pf, from_=0, to=len(PRESETS) - 1, orient="horizontal",
+                        variable=p_idx, style="Horizontal.TScale")
+    p_scale.grid(row=0, column=0, columnspan=3, sticky="we", pady=(4, 0))
+    ttk.Label(pf, text="faster", style="Muted.TLabel").grid(row=1, column=0, sticky="w")
+    p_name = ttk.Label(pf, text="", style="Panel.TLabel", font=F["small"])
+    p_name.grid(row=1, column=1)
+    ttk.Label(pf, text="better", style="Muted.TLabel").grid(row=1, column=2, sticky="e")
+    pf.columnconfigure(1, weight=1)
+
+    def on_preset_slide(*_):
+        i = int(round(p_idx.get()))
+        if abs(p_idx.get() - i) > 1e-6:
+            p_idx.set(i)            # snap to whole steps
+        if V["preset"].get() != PRESETS[i]:
+            V["preset"].set(PRESETS[i])
+        p_name.config(text=PRESETS[i])
+    p_idx.trace_add("write", on_preset_slide)
+    on_preset_slide()
+    field(vc, 2, "Preset", pf, "preset")
+    Tooltip(p_scale, TIPS["preset"])
+
+    def codec_state(*_):  # presets only apply to x264/x265
+        hw = CODECS[V["codec"].get()].endswith("videotoolbox")
+        p_scale.state(["disabled"] if hw else ["!disabled"])
+        p_name.config(text="n/a (hardware)" if hw else PRESETS[int(round(p_idx.get()))])
+    V["codec"].trace_add("write", codec_state)
     field(vc, 3, "Resolution", combo(vc, V["res"], list(RESOLUTIONS), 22), "res")
     field(vc, 4, "Frame rate", combo(vc, V["fps"], FPS_CHOICES), "fps")
     chk = ttk.Frame(vc, style="Panel.TFrame")
