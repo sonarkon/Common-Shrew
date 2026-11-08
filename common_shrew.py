@@ -248,9 +248,14 @@ def probe(path):
     )
 
 
-def thumbnail_png(path, duration, w=288, h=162):
-    """Grab one frame (~10 % in) as PNG bytes, fitted into w×h."""
-    t = min(max(duration * 0.1, 0), max(duration - 0.5, 0))
+SCRUB_FRAMES = 12   # hover-scrub frames per clip
+
+
+def thumbnail_png(path, duration, w=288, h=162, t=None):
+    """Grab one frame (default ~10 % in) as PNG bytes, fitted into w×h."""
+    if t is None:
+        t = duration * 0.1
+    t = min(max(t, 0), max(duration - 0.5, 0))
     cmd = [FFMPEG, "-v", "error", "-nostdin", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
            "-vf", f"scale=w={w}:h={h}:force_original_aspect_ratio=decrease",
            "-f", "image2pipe", "-c:v", "png", "pipe:1"]
@@ -942,10 +947,94 @@ def run_gui():
 
     pcard = card(top, "Preview")
     pcard.grid(row=0, column=1, sticky="nsew")
-    blank = tk.PhotoImage(width=288, height=162)
-    thumb_lbl = tk.Label(pcard, image=blank, bg="#0f0f11", width=288, height=162,
-                         bd=0, highlightthickness=0)
-    thumb_lbl.grid(row=1, column=0, sticky="n")
+    TW, TH = 288, 162
+    blank = tk.PhotoImage(width=TW, height=TH)
+    thumb = tk.Canvas(pcard, width=TW, height=TH, bg="#0f0f11", bd=0, highlightthickness=0,
+                      cursor="sb_h_double_arrow")
+    thumb.grid(row=1, column=0, sticky="n")
+    t_img = thumb.create_image(TW // 2, TH // 2, image=blank, anchor="center")
+    t_bar_bg = thumb.create_rectangle(0, TH - 4, TW, TH, fill="#000000", width=0,
+                                      state="hidden")
+    t_bar = thumb.create_rectangle(0, TH - 4, 0, TH, fill=C["accent"], width=0,
+                                   state="hidden")
+    t_tc_bg = thumb.create_rectangle(0, 0, 0, 0, fill="#000000", width=0, state="hidden")
+    t_tc = thumb.create_text(TW - 8, TH - 10, anchor="se", text="", fill="#ffffff",
+                             font=F["small"], state="hidden")
+    t_hint_bg = thumb.create_rectangle(0, 0, 0, 0, fill="#000000", width=0, state="hidden")
+    t_hint = thumb.create_text(8, TH - 10, anchor="sw", text="⇆ hover to scrub",
+                               fill="#d0d0d4", font=F["small"], state="hidden")
+    scrub = {"iid": None, "hover": False}
+
+    def _boxed(text_item, bg_item, show):
+        st_ = "normal" if show else "hidden"
+        thumb.itemconfigure(text_item, state=st_)
+        if show:
+            x1, y1, x2, y2 = thumb.bbox(text_item)
+            thumb.coords(bg_item, x1 - 5, y1 - 2, x2 + 5, y2 + 2)
+            thumb.tag_raise(text_item)
+        thumb.itemconfigure(bg_item, state=st_)
+
+    def current_item():
+        sel = tree.selection()
+        iid = sel[0] if sel else (order[0] if order else None)
+        return iid if iid in items else None
+
+    def ensure_scrub(iid):
+        it = items.get(iid)
+        if not it or not it["info"] or it["scrub_started"]:
+            return
+        it["scrub_started"] = True
+        path, dur = it["path"], it["info"].duration
+
+        def work():
+            for i in range(SCRUB_FRAMES):
+                if iid not in items:
+                    return
+                png = thumbnail_png(path, dur, TW, TH, t=dur * (i + 0.5) / SCRUB_FRAMES)
+                if png:
+                    msgs.put(("scrub", iid, i, png))
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_thumb_motion(e):
+        iid = current_item()
+        if not iid or not items[iid]["info"]:
+            return
+        it = items[iid]
+        ensure_scrub(iid)
+        scrub["hover"] = True
+        frac = min(max(e.x / TW, 0.0), 0.9999)
+        idx = int(frac * SCRUB_FRAMES)
+        frames = it["scrub"]
+        # nearest frame that's already extracted
+        img = None
+        for d in range(SCRUB_FRAMES):
+            for j in (idx - d, idx + d):
+                if 0 <= j < SCRUB_FRAMES and frames.get(j) is not None:
+                    img = frames[j]
+                    break
+            if img:
+                break
+        thumb.itemconfigure(t_img, image=img or it["big"] or blank)
+        thumb.coords(t_bar, 0, TH - 4, (idx + 1) / SCRUB_FRAMES * TW, TH)
+        thumb.itemconfigure(t_bar, state="normal")
+        thumb.itemconfigure(t_bar_bg, state="normal")
+        thumb.itemconfigure(t_tc, text=f"{fmt_dur(it['info'].duration * (idx + 0.5) / SCRUB_FRAMES)}"
+                            f" / {fmt_dur(it['info'].duration)}")
+        _boxed(t_tc, t_tc_bg, True)
+        _boxed(t_hint, t_hint_bg, False)
+
+    def on_thumb_leave(_=None):
+        scrub["hover"] = False
+        iid = current_item()
+        thumb.itemconfigure(t_img, image=(items[iid]["big"] if iid else None) or blank)
+        for it_ in (t_bar, t_bar_bg):
+            thumb.itemconfigure(it_, state="hidden")
+        _boxed(t_tc, t_tc_bg, False)
+        _boxed(t_hint, t_hint_bg, bool(iid and items[iid]["big"]))
+
+    thumb.bind("<Motion>", on_thumb_motion)
+    thumb.bind("<Enter>", on_thumb_motion)
+    thumb.bind("<Leave>", on_thumb_leave)
     pname = ttk.Label(pcard, text="No video selected", style="Panel.TLabel", font=F["bold"],
                       wraplength=288)
     pname.grid(row=2, column=0, sticky="w", pady=(8, 2))
@@ -1211,7 +1300,8 @@ def run_gui():
             return False
         iid = tree.insert("", "end", text="  " + os.path.basename(p),
                           values=("…", "…", fmt_size(os.path.getsize(p)), "analysing…", ""))
-        items[iid] = dict(path=p, info=None, big=None, small=None, result="", error="")
+        items[iid] = dict(path=p, info=None, big=None, small=None, result="", error="",
+                          scrub={}, scrub_started=False)
         order.append(iid)
         threading.Thread(target=analyse, args=(iid, p), daemon=True).start()
         return True
@@ -1324,13 +1414,15 @@ def run_gui():
         sel = tree.selection()
         iid = sel[0] if sel else (order[0] if order else None)
         if not iid or iid not in items:
-            thumb_lbl.config(image=blank)
+            on_thumb_leave()
             pname.config(text="No video selected")
             pmeta.config(text="")
             pplan.config(text="")
             return
         it = items[iid]
-        thumb_lbl.config(image=it["big"] or blank)
+        if not scrub["hover"]:
+            on_thumb_leave()
+        ensure_scrub(iid)
         pname.config(text=os.path.basename(it["path"]))
         info = it["info"]
         if it["error"]:
@@ -1499,6 +1591,14 @@ def run_gui():
                         tree.set(iid, "result", "✗ unreadable")
                         tree.item(iid, tags=("err",))
                         show_preview()
+                elif kind == "scrub":
+                    iid, idx = m[1], m[2]
+                    if iid in items:
+                        try:
+                            items[iid]["scrub"][idx] = tk.PhotoImage(
+                                data=base64.b64encode(m[3]).decode())
+                        except tk.TclError:
+                            pass
                 elif kind == "thumb":
                     iid = m[1]
                     if iid in items:

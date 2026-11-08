@@ -38,6 +38,8 @@ recommended compression settings.
 - **Apple hardware encoding** (VideoToolbox) for fast results.
 - **Desktop app:**
   - Queue with drag & drop and thumbnails.
+  - Hover-scrub preview: move the mouse across the thumbnail to check you've got the
+    right clip.
   - Preview of the chosen file, with the estimated size and compression before you start.
   - The actual size and reduction in % after encoding.
   - Tooltips for every option, a progress bar and a log.
