@@ -54,9 +54,9 @@ RESOLUTIONS = {
     "720p – fit 1280×720": (1280, 720),
     "SD – fit 854×480": (854, 480),
 }
-CODECS = {
-    "H.264 · x264 2-pass (precise)": "libx264",
+CODECS = {   # first entry = default
     "H.265 · x265 2-pass (precise)": "libx265",
+    "H.264 · x264 2-pass (precise)": "libx264",
     "H.264 · Apple hardware (fast)": "h264_videotoolbox",
     "H.265 · Apple hardware (fast)": "hevc_videotoolbox",
 }
@@ -264,8 +264,8 @@ def thumbnail_png(path, duration, w=288, h=162):
 class Settings:
     target_gb: float = 5.0          # target size (decimal, 1 GB = 1000³ bytes)
     safety_pct: float = 2.0
-    codec: str = "libx264"
-    preset: str = "slow"
+    codec: str = "libx265"
+    preset: str = "medium"
     resolution: str = "Original"
     fps: str = "Original"
     audio_kbps: int = 320
@@ -467,6 +467,8 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
             x265p += ["hdr10-opt=1", "repeat-headers=1"]
         if pass_no:
             x265p += [f"pass={pass_no}", f"stats={passlog}.log"]
+            if pass_no == 1:   # fast analysis pass – negligible quality impact
+                x265p += ["slow-firstpass=0"]
         cmd += ["-preset", s.preset, "-tag:v", "hvc1", "-x265-params", ":".join(x265p)]
     else:  # VideoToolbox
         cmd += ["-maxrate", f"{int(v*1.3)}k", "-bufsize", f"{v*2}k", "-g", str(gop),
@@ -635,11 +637,15 @@ TIPS = {
               "so no preset is needed there.",
     "safety": "Percentage of the target size held back as reserve so the file reliably stays under it.\n"
               "2 % is plenty for 2-pass x264/x265. Use 5–8 % for Apple hardware encoding.",
-    "codec": "x264 / x265: 2-pass encoding – slower, best quality per MB, hits the size precisely.\n"
+    "codec": "H.265 (default) gives roughly 25–40 % better quality than H.264 at the same file "
+             "size – ideal when the size limit is tight – but encodes slower.\n\n"
+             "x264 / x265: 2-pass encoding, hits the size precisely.\n"
              "Apple hardware (VideoToolbox): much faster, slightly lower quality per MB, "
-             "size less precise.\nH.265 is more efficient than H.264 at the same size.",
+             "size less precise.\n"
+             "H.264 is the most compatible choice if the file is also used outside Vimeo.",
     "preset": "Speed vs. efficiency for x264/x265. Slower presets give better quality at the "
-              "same file size.\n'slow' is a good balance. Ignored by Apple hardware encoding.",
+              "same file size.\n'medium' is a good balance for x265; 'slow' looks slightly better "
+              "but takes about twice as long. Ignored by Apple hardware encoding.",
     "res": "Output frame size. The video is scaled to fit INSIDE the chosen box, keeping its "
            "aspect ratio –\nnever cropped, never letterboxed, never upscaled. "
            "Portrait videos use the rotated box.\nExample: 4096×1716 in 'fit 1920×1080' → 1920×804.",
@@ -843,7 +849,7 @@ def run_gui():
     V = dict(
         target=tk.StringVar(value="5"), unit=tk.StringVar(value="GB"),
         acopy=tk.BooleanVar(value=False), safety=tk.DoubleVar(value=2.0),
-        codec=tk.StringVar(value=list(CODECS)[0]), preset=tk.StringVar(value="slow"),
+        codec=tk.StringVar(value=list(CODECS)[0]), preset=tk.StringVar(value="medium"),
         res=tk.StringVar(value="Original"), fps=tk.StringVar(value="Original"),
         abr=tk.StringVar(value="320"), ach=tk.StringVar(value="Auto"),
         vcap=tk.BooleanVar(value=True), scap=tk.BooleanVar(value=True),
@@ -1525,8 +1531,8 @@ def run_cli(argv):
     ap.add_argument("--size", type=parse_size_gb, default=5.0,
                     help="target size, e.g. 5, 4GB, 750MB (default 5 GB)")
     ap.add_argument("--safety", type=float, default=2.0, help="safety margin in %%")
-    ap.add_argument("--codec", default="libx264", choices=list(CODECS.values()))
-    ap.add_argument("--preset", default="slow", choices=PRESETS)
+    ap.add_argument("--codec", default="libx265", choices=list(CODECS.values()))
+    ap.add_argument("--preset", default="medium", choices=PRESETS)
     ap.add_argument("--res", default="Original", choices=["Original", "2160", "1440",
                                                            "1080", "720", "480"])
     ap.add_argument("--fps", default="Original", choices=FPS_CHOICES)

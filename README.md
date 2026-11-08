@@ -18,7 +18,7 @@ recommended compression settings.
 ## Features
 
 - **Hits a target size.** Calculates the bitrate from the size and duration and encodes in
-  2 passes (x264/x265), so the result lands just under the limit. A safety margin is
+  2 passes, so the result lands just under the limit. A safety margin is
   configurable.
 - **Size presets** for common upload limits: Vimeo, LinkedIn, Facebook, TikTok, Telegram,
   WhatsApp, Pinterest, Threads, X, Discord and e-mail. You can also enter any value in GB
@@ -33,6 +33,8 @@ recommended compression settings.
   upscaled.
 - **"Don't compress audio"** keeps the original track. Files with PCM audio are saved as `.mov`.
 - **Never exceeds the source bitrate**, so efficient sources don't get bigger.
+- **H.265 by default**, for the best quality at a given size (x265, preset `medium`). x264 is
+  available for maximum compatibility.
 - **Apple hardware encoding** (VideoToolbox) for fast results.
 - **Desktop app:**
   - Queue with drag & drop and thumbnails.
@@ -62,7 +64,7 @@ python3 -m venv .venv && .venv/bin/pip install tkinterdnd2   # optional: drag & 
 ## Command line
 
 ```sh
-python3 common_shrew.py --cli movie.mov                    # 5 GB, Vimeo defaults
+python3 common_shrew.py --cli movie.mov                    # 5 GB, H.265, Vimeo defaults
 python3 common_shrew.py --cli *.mov --size 750MB --res 1080
 python3 common_shrew.py --cli movie.mov --codec hevc_videotoolbox --copy-audio
 python3 common_shrew.py --cli movie.mov --dry-run          # show plan + ffmpeg command

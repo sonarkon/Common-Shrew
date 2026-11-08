@@ -48,7 +48,9 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
 4. **`build_cmd(plan, settings, out, pass_no)`:**
    - Pass 1 → null muxer.
    - Pass 2 / single pass → final file with `-progress pipe:1`.
-   - x265 two-pass runs through `-x265-params pass=N:stats=…`.
+   - Default codec is **x265** (preset `medium`), because size-limited encodes benefit most
+     from HEVC efficiency. x265 two-pass runs through `-x265-params pass=N:stats=…`, and pass 1
+     uses `slow-firstpass=0` for speed.
    - Colour tags come from the source and fall back to BT.709.
    - A silent `anullsrc` track is added when the source has no audio.
 5. **`Job.run()`:**
