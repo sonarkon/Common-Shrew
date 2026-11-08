@@ -1,8 +1,4 @@
-# Common Shrew
-
-![Common Shrew – shrinks videos to a target size](docs/social-preview.png)
-
-**Shrinks videos to a target size – tuned to Vimeo's upload specs.**
+![Common Shrew – shrinks videos to a target size, tuned to Vimeo's upload specs](docs/header.jpg)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
 

@@ -23,6 +23,7 @@ README and commit messages are **English**.
 | `tools/make_samples.sh` | Generates synthetic test clips (PCM audio, 120 fps without audio, scope, portrait) into `samples/` |
 | `tools/gui_screenshot.py` | Headless GUI smoke test plus screenshot |
 | `docs/screenshot.png` | Screenshot used in the README |
+| `docs/header.jpg` | README header banner, 1280×400 rendered at 2× (from `docs/banner/header.html`) |
 | `docs/social-preview.png` | GitHub social preview banner, 1280×640. Built from `docs/banner/` (HTML + Playwright); the shrew engraving is public domain (EB9, 1886) and its credit must stay on the banner and in the README |
 
 Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_system_tk` and

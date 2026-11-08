@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:Fraunces;font-weight:600;src:url(node_modules/@fontsource/fraunces/files/fraunces-latin-600-normal.woff2)}
+@font-face{font-family:Fraunces;font-weight:400;font-style:italic;src:url(node_modules/@fontsource/fraunces/files/fraunces-latin-400-italic.woff2)}
+@font-face{font-family:Inter;font-weight:400;src:url(node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2)}
+@font-face{font-family:Inter;font-weight:500;src:url(node_modules/@fontsource/inter/files/inter-latin-500-normal.woff2)}
+@font-face{font-family:Inter;font-weight:600;src:url(node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2)}
+:root{--bg:#17181b;--fg:#ececee;--muted:#9a9ca3;--accent:#3d8bfd;--ok:#44c486;--paper:#f2ead8;--ink:#2a241b}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1280px;height:400px;overflow:hidden}
+body{font-family:Inter,sans-serif;color:var(--fg);position:relative;border-radius:0;
+ background:radial-gradient(760px 420px at 76% 45%,#23324a 0%,rgba(23,24,27,0) 62%),var(--bg)}
+.left{position:absolute;left:72px;top:66px;width:690px}
+.over{font:600 14px Inter;letter-spacing:.2em;color:var(--accent)}
+h1{font:600 76px/1 Fraunces,serif;letter-spacing:-.02em;margin-top:14px;white-space:nowrap}
+.tag{font:400 20px/1.4 Inter;color:#c9cad0;margin-top:16px;white-space:nowrap}
+.meter{margin-top:34px;display:flex;align-items:center;gap:12px;font:500 15px Inter;color:var(--muted)}
+.bar{height:10px;border-radius:5px}
+.b1{width:200px;background:#3a3c44}.b2{width:142px;background:linear-gradient(90deg,var(--accent),#6aa8ff)}
+.meter b{color:var(--fg);font-weight:600}
+.arrow{color:#5d606a}
+.pill{font:600 13px Inter;color:var(--ok);background:rgba(68,196,134,.12);padding:3px 9px;border-radius:20px}
+.card{position:absolute;right:64px;top:50px;width:440px;padding:20px 20px 14px;background:var(--paper);
+ border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);transform:rotate(-1.6deg)}
+.card img{display:block;width:100%;mix-blend-mode:multiply;filter:contrast(1.08)}
+.cap{margin-top:8px;font:italic 400 16px Fraunces,serif;color:var(--ink)}
+.credit{position:absolute;right:64px;bottom:16px;font:400 11px Inter;color:#6a6c73}
+</style></head><body>
+<div class="left">
+  <div class="over">VIDEO COMPRESSOR FOR macOS</div>
+  <h1>Common Shrew</h1>
+  <p class="tag">Shrinks videos to a target size – tuned to Vimeo's upload specs.</p>
+  <div class="meter"><div class="bar b1"></div><b>6.88 GB</b><span class="arrow">→</span>
+    <div class="bar b2"></div><b>4.90 GB</b><span class="pill">−29 %</span></div>
+</div>
+<div class="card"><img src="shrew.jpg" alt=""><div class="cap">Sorex araneus – shrinks to survive winter</div></div>
+<div class="credit">Illustration: C. Butterworth, Encyclopædia Britannica 9th ed. (1886) · public domain · Wikimedia Commons</div>
+</body></html>

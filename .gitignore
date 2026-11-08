@@ -27,3 +27,4 @@ samples/
 # banner build deps
 node_modules/
 package-lock.json
+docs/banner/header.png
