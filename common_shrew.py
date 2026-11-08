@@ -15,6 +15,8 @@ Without GUI:  python3 common_shrew.py --cli movie.mov --size 5
 
 Named after the common shrew (Sorex araneus), which shrinks in winter
 (Dehnel's phenomenon) and grows back in spring.
+
+MIT License – Copyright (c) 2026 sonarkon – https://github.com/sonarkon/Common-Shrew
 """
 
 import base64

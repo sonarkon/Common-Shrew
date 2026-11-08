@@ -12,7 +12,7 @@ A "Support on Ko-fi" button in the header opens `KOFI_URL`
 (https://ko-fi.com/S7Z228X1UL). The README shows the same Ko-fi badge at the top and in
 "Support".
 
-Owner: Jost. Conversation language with him is **German**. The app UI, code, comments,
+Owner: Jost (GitHub: **sonarkon**, repo `sonarkon/Common-Shrew`). License: **MIT**, © 2026 sonarkon. Conversation language with him is **German**. The app UI, code, comments,
 README and commit messages are **English**.
 
 ## Files
@@ -109,7 +109,6 @@ xvfb-run -a -s "-screen 0 1220x930x24" .venv/bin/python tools/gui_screenshot.py 
   copied. Never overwrite sources.
 
 ## Ideas / open points
-- No license chosen yet – ask Jost before publishing.
 - Possible next steps:
   - per-file settings;
   - remembering settings between runs;

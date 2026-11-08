@@ -84,6 +84,13 @@ Common Shrew is free. If it saves you time, you can buy me a coffee:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/S7Z228X1UL)
 
+## License
+
+[MIT](LICENSE) © 2026 sonarkon
+
+Common Shrew calls [ffmpeg](https://ffmpeg.org) as an external program. ffmpeg is not
+bundled and has its own (L)GPL licence.
+
 ## Sources
 
 - [Vimeo – Video compression settings](https://help.vimeo.com/hc/en-us/articles/12426982098449-Video-compression-settings)
