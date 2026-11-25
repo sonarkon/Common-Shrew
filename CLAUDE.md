@@ -64,6 +64,14 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      uses `slow-firstpass=0` for speed.
    - Colour tags come from the source and fall back to BT.709.
    - A silent `anullsrc` track is added when the source has no audio.
+   - `Settings.video_copy` ("Don't re-encode video") takes a separate, single-pass path:
+     `_plan_video_copy` and `_build_cmd_video_copy`.
+     - The video is `-c:v copy` (HEVC gets the `hvc1` tag in MP4); there is no target-size
+       enforcement, only a warning note.
+     - Codecs outside `MP4_VIDEO_OK` go to `.mov`.
+     - Both builders share `_audio_args`.
+     - The GUI greys out codec, preset, resolution, fps, the video checkboxes, deinterlace
+       and keyframes.
    - With replacement audio, input 1 is that file (mapped `1:a:0`). Encoded audio gets
      `-af apad`, then `-shortest`, so the output always has the video's length: longer
      audio is cut, shorter audio is padded with silence. Copied audio gets `-shortest`
@@ -132,6 +140,8 @@ python3 common_shrew.py --cli samples/hfr_noaudio.mp4 --size 10MB --preset ultra
 python3 common_shrew.py --cli samples/pcm24.mov --size 3MB --copy-audio  # expect .mov output
 python3 common_shrew.py --cli samples/hd_pcm.mov --size 15MB --replace-audio samples/audio_shorter.mp3
 #   expect an audio stream ≈ 20 s (padded); with audio_longer.wav it is cut to 20 s
+python3 common_shrew.py --cli out.mp4 --copy-video --replace-audio samples/audio_longer.wav
+#   expect a video stream bit-identical to out.mp4 (compare: ffmpeg -i X -map 0:v -c copy -f md5 -)
 
 # GUI
 .venv/bin/python common_shrew.py samples/*

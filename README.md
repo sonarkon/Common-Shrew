@@ -33,6 +33,9 @@ recommended compression settings.
   Audio panel or drop it onto the queue, and it applies to the selected video. Common Shrew
   checks the length and warns if it differs by more than 0.5 s. Longer audio is cut,
   shorter audio is padded with silence.
+- **"Don't re-encode video"** copies the picture unchanged, without quality loss and in
+  seconds, and only swaps or converts the audio. Use it for videos that are already
+  compressed.
 - **"Don't compress audio"** keeps the original track. Files with PCM audio are saved as `.mov`.
 - **Never exceeds the source bitrate**, so efficient sources don't get bigger.
 - **H.265 by default**, for the best quality at a given size (x265, preset `medium`). x264 is
@@ -106,6 +109,7 @@ python3 common_shrew.py --cli movie.mov                    # 5 GB, H.265, Vimeo 
 python3 common_shrew.py --cli *.mov --size 750MB --res 1080
 python3 common_shrew.py --cli movie.mov --codec hevc_videotoolbox --copy-audio
 python3 common_shrew.py --cli movie.mov --replace-audio final-mix.wav
+python3 common_shrew.py --cli done.mp4 --copy-video --replace-audio final-mix.wav   # audio only
 python3 common_shrew.py --cli movie.mov --dry-run          # show plan + ffmpeg command
 python3 common_shrew.py --cli --help
 ```

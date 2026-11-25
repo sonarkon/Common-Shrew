@@ -251,6 +251,7 @@ def _audio_kbps(a):
 
 
 MP4_AUDIO_OK = {"aac", "mp3", "ac3", "eac3", "alac", "opus", "flac"}
+MP4_VIDEO_OK = {"h264", "hevc", "av1", "mpeg4", "vp9"}   # can be stream-copied into MP4
 
 
 def probe(path):
@@ -411,6 +412,7 @@ class Settings:
     deinterlace: str = "Auto"       # Auto / On / Off
     keyframe_sec: float = 2.0
     hw_decode: bool = True          # decode the source via VideoToolbox (macOS)
+    video_copy: bool = False        # keep the video stream as is (e.g. only swap the audio)
     suffix: str = "_vimeo"
     out_dir: str = ""
     extra_args: str = ""
@@ -463,6 +465,8 @@ def vimeo_cap_for(w, h):
 
 
 def make_plan(info, s: Settings):
+    if s.video_copy:
+        return _plan_video_copy(info, s)
     notes = []
     dw, dh = display_dims(info)
     fw, fh, sc = fit_into(dw, dh, RESOLUTIONS.get(s.resolution))
@@ -548,7 +552,49 @@ def make_plan(info, s: Settings):
     return Plan(info, out_w, out_h, out_fps, vkbps, akbps, ach, est, notes, copy_audio)
 
 
+def _plan_video_copy(info, s: Settings):
+    """Plan for 'don't re-encode video': the picture is copied, only audio is (re)made."""
+    notes = ["Video copied unchanged – no re-encoding, no quality loss. Resolution, frame "
+             "rate and codec settings don't apply."]
+    dw, dh = display_dims(info)
+    copy_audio = s.audio_copy and info.has_audio
+    if info.audio_path:
+        diff = audio_len_diff(info)
+        msg = f"Audio replaced by {os.path.basename(info.audio_path)}"
+        if diff > AUDIO_LEN_TOL:
+            msg += f" – it is {fmt_diff(diff)} longer than the video and will be cut at the end."
+        elif diff < -AUDIO_LEN_TOL:
+            msg += f" – it is {abs(diff):.1f} s shorter than the video; silence fills the rest."
+            copy_audio = False
+        else:
+            msg += f" (length matches, {fmt_diff(diff)})."
+        notes.append(msg)
+    if not info.has_audio:
+        notes.append("No audio – adding a silent stereo track (required by Vimeo).")
+    if copy_audio:
+        akbps, ach = info.audio_kbps or 320, info.audio_channels
+    else:
+        if s.audio_channels == "Stereo":
+            ach = 2
+        elif s.audio_channels == "5.1":
+            ach = 6
+        else:
+            ach = 6 if info.audio_channels >= 6 else 2
+        akbps = s.audio_kbps if ach == 2 else max(s.audio_kbps, 384)
+    vkbps = info.video_kbps or 0
+    est = int((vkbps + akbps) * 1000 / 8 * info.duration)
+    if est > s.target_gb * 1e9:
+        notes.append(f"⚠ About {fmt_size(est)} – above the {fmt_size(s.target_gb * 1e9)} target, "
+                     "because the video isn't re-compressed.")
+    if info.vcodec not in MP4_VIDEO_OK:
+        notes.append(f"{info.vcodec} video can't go into MP4 – output saved as .mov.")
+    return Plan(info, dw - dw % 2, dh - dh % 2, info.fps, vkbps, akbps, ach, est, notes,
+                copy_audio)
+
+
 def output_ext(info, s: Settings):
+    if s.video_copy and info and info.vcodec not in MP4_VIDEO_OK:
+        return ".mov"
     if s.audio_copy and info and info.has_audio and info.acodec not in MP4_AUDIO_OK:
         return ".mov"
     return ".mp4"
@@ -578,6 +624,8 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
     """pass_no: 0 = single pass, 1/2 = two-pass."""
     info = plan.info
     cmd = [FFMPEG, "-hide_banner", "-y", "-nostdin"]
+    if s.video_copy:
+        return _build_cmd_video_copy(plan, s, out)
     if s.hw_decode and hwdec_available():
         # frames are copied back to system memory automatically for the CPU filters;
         # unsupported formats fall back to software decoding inside ffmpeg
@@ -664,6 +712,41 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
     return cmd + ["-progress", "pipe:1", "-nostats", out]
 
 
+def _audio_args(plan, info):
+    """Audio codec + length handling shared by both command builders."""
+    if plan.audio_copy:
+        args = ["-c:a", "copy"]
+    else:
+        args = ["-c:a", "aac", "-b:a", f"{plan.audio_kbps}k", "-ar", "48000",
+                "-ac", str(plan.audio_ch)]
+    if info.audio_path:
+        if not plan.audio_copy:
+            args += ["-af", "apad"]
+        args += ["-shortest"]
+    elif not info.has_audio:
+        args += ["-shortest"]
+    return args
+
+
+def _build_cmd_video_copy(plan: Plan, s: Settings, out):
+    """Single pass: copy the picture, (re)make only the audio."""
+    info = plan.info
+    cmd = [FFMPEG, "-hide_banner", "-y", "-nostdin", "-i", info.path]
+    if info.audio_path:
+        cmd += ["-i", info.audio_path]
+    elif not info.has_audio:
+        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+    own = info.has_audio and not info.audio_path
+    cmd += ["-map", "0:v:0", "-map", "0:a:0" if own else "1:a:0", "-c:v", "copy"]
+    if info.vcodec == "hevc" and out.lower().endswith(".mp4"):
+        cmd += ["-tag:v", "hvc1"]          # plays in QuickTime/Safari
+    cmd += _audio_args(plan, info)
+    cmd += ["-map_metadata", "0", "-movflags", "+faststart"]
+    if s.extra_args.strip():
+        cmd += s.extra_args.split()
+    return cmd + ["-progress", "pipe:1", "-nostats", out]
+
+
 # --------------------------------------------------------------------------
 # Encoding job
 # --------------------------------------------------------------------------
@@ -730,7 +813,9 @@ class Job:
         tmpdir = tempfile.mkdtemp(prefix="shrew_2pass_")
         passlog = os.path.join(tmpdir, "pass")
         def encode(s):
-            if s.codec in ("libx264", "libx265"):
+            if s.video_copy:
+                self._run(build_cmd(plan, s, out, 0), info.duration, 0, 1)
+            elif s.codec in ("libx264", "libx265"):
                 self._run(build_cmd(plan, s, out, 1, passlog), info.duration, 0, 0.5)
                 self._run(build_cmd(plan, s, out, 2, passlog), info.duration, 0.5, 1)
             else:
@@ -739,7 +824,8 @@ class Job:
             try:
                 encode(self.s)
             except RuntimeError:
-                if not (self.s.hw_decode and hwdec_available()) or self.stop.is_set():
+                if (self.s.video_copy or not (self.s.hw_decode and hwdec_available())
+                        or self.stop.is_set()):
                     raise
                 self.log("  ⚠ Hardware decoding failed – retrying with software decoding.")
                 encode(dataclasses.replace(self.s, hw_decode=False))
@@ -866,6 +952,12 @@ TIPS = {
              "MP4 can't hold PCM audio, so in that case the output is saved as .mov "
              "(Vimeo accepts both). Videos without sound still get a silent AAC track.",
     "unit": "Unit for the target size: GB or MB (decimal, 1 GB = 1,000 MB).",
+    "vcopy": "Keep the video exactly as it is – no re-encoding, no quality loss, done in "
+             "seconds. Use it when the video is already compressed and you only want to swap or "
+             "convert the audio (see 'Replace audio').\n\n"
+             "The target size isn't enforced then: the file is as big as the video already is "
+             "(the estimate warns if it's above the target). Codec, preset, resolution and "
+             "frame-rate settings are ignored.",
     "hwdec": "Read (decode) the source video with the Mac's media engine instead of the CPU. "
              "Speeds up both passes – especially for HEVC and ProRes sources – and leaves more "
              "CPU for the encoder. The image is identical; unsupported formats fall back to "
@@ -1053,7 +1145,7 @@ def run_gui():
         abr=tk.StringVar(value="320"), ach=tk.StringVar(value="Auto"),
         vcap=tk.BooleanVar(value=True), scap=tk.BooleanVar(value=True),
         ten=tk.BooleanVar(value=False), deint=tk.StringVar(value="Auto"),
-        hwdec=tk.BooleanVar(value=True),
+        hwdec=tk.BooleanVar(value=True), vcopy=tk.BooleanVar(value=False),
         gop=tk.DoubleVar(value=2.0), suffix=tk.StringVar(value="_vimeo"),
         outdir=tk.StringVar(value=""), extra=tk.StringVar(value=""),
     )
@@ -1067,7 +1159,7 @@ def run_gui():
             audio_copy=V["acopy"].get(),
             vimeo_cap=V["vcap"].get(), source_cap=V["scap"].get(), ten_bit=V["ten"].get(),
             deinterlace=V["deint"].get(), keyframe_sec=float(V["gop"].get()),
-            hw_decode=V["hwdec"].get(),
+            hw_decode=V["hwdec"].get(), video_copy=V["vcopy"].get(),
             suffix=V["suffix"].get() or "_vimeo", out_dir=V["outdir"].get(),
             extra_args=V["extra"].get())
 
@@ -1411,7 +1503,7 @@ def run_gui():
     vc = card(sets, "Video")
     vc.grid(row=0, column=1, sticky="nsew", padx=(0, 12))
     vc.columnconfigure(1, weight=1)
-    field(vc, 1, "Codec", combo(vc, V["codec"], list(CODECS), 26), "codec")
+    codec_w = field(vc, 1, "Codec", combo(vc, V["codec"], list(CODECS), 26), "codec")
     # preset slider: ultrafast (0) … veryslow (8)
     pf = ttk.Frame(vc, style="Panel.TFrame")
     p_idx = tk.DoubleVar(value=PRESETS.index(V["preset"].get()))
@@ -1443,19 +1535,38 @@ def run_gui():
         p_scale.state(["disabled"] if hw else ["!disabled"])
         p_name.config(text="n/a (hardware)" if hw else PRESETS[int(round(p_idx.get()))])
     V["codec"].trace_add("write", codec_state)
-    field(vc, 3, "Resolution", combo(vc, V["res"], list(RESOLUTIONS), 22), "res")
-    field(vc, 4, "Frame rate", combo(vc, V["fps"], FPS_CHOICES), "fps")
+    res_w = field(vc, 3, "Resolution", combo(vc, V["res"], list(RESOLUTIONS), 22), "res")
+    fps_w = field(vc, 4, "Frame rate", combo(vc, V["fps"], FPS_CHOICES), "fps")
     chk = ttk.Frame(vc, style="Panel.TFrame")
     chk.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
-    checks = [("vcap", "Cap at Vimeo's recommended bitrate"),
+    checks = [("vcopy", "Don't re-encode video (only swap audio)"),
+              ("vcap", "Cap at Vimeo's recommended bitrate"),
               ("scap", "Never exceed source bitrate"),
               ("ten", "10-bit colour")]
     if IS_MAC:   # VideoToolbox decoding only exists on macOS
         checks.append(("hwdec", "Hardware decoding (Apple)"))
+    vchecks = {}
     for r, (key, txt) in enumerate(checks):
         cb = ttk.Checkbutton(chk, text=txt, variable=V[key])
         cb.grid(row=r, column=0, sticky="w", pady=2)
         Tooltip(cb, TIPS[key])
+        vchecks[key] = cb
+
+    def vcopy_state(*_):
+        """Grey out everything that only matters when the video is re-encoded."""
+        on = V["vcopy"].get()
+        for w in (codec_w, res_w, fps_w, deint_w):
+            w.state(["disabled"] if on else ["!disabled", "readonly"])
+        gop_w.state(["disabled"] if on else ["!disabled"])
+        for k, cb in vchecks.items():
+            if k != "vcopy":
+                cb.state(["disabled"] if on else ["!disabled"])
+        if on:
+            p_scale.state(["disabled"])
+        else:
+            codec_state()
+        update_output_labels()
+    V["vcopy"].trace_add("write", vcopy_state)
 
     ac = panel(rcol, "Audio", 0)
     acb = ttk.Checkbutton(ac, text="Don't compress audio", variable=V["acopy"])
@@ -1489,10 +1600,11 @@ def run_gui():
     V["acopy"].trace_add("write", audio_state)
 
     adv = panel(lcol, "Advanced", 1)
-    field(adv, 1, "Deinterlace", combo(adv, V["deint"], ["Auto", "On", "Off"]), "deint")
+    deint_w = field(adv, 1, "Deinterlace", combo(adv, V["deint"], ["Auto", "On", "Off"]), "deint")
     gf = ttk.Frame(adv, style="Panel.TFrame")
-    ttk.Spinbox(gf, from_=0.5, to=10, increment=0.5, textvariable=V["gop"], width=5,
-                font=F["base"], justify="right").pack(side="left")
+    gop_w = ttk.Spinbox(gf, from_=0.5, to=10, increment=0.5, textvariable=V["gop"], width=5,
+                        font=F["base"], justify="right")
+    gop_w.pack(side="left")
     ttk.Label(gf, text="s", style="Panel.TLabel").pack(side="left", padx=(6, 0))
     field(adv, 2, "Keyframe every", gf, "gop")
     field(adv, 3, "ffmpeg args", ttk.Entry(adv, textvariable=V["extra"], width=12,
@@ -1739,7 +1851,7 @@ def run_gui():
             root.after_cancel(pending["id"])
         pending["id"] = root.after(250, refresh_estimates)
 
-    for k in ("target", "unit", "acopy", "safety", "codec", "res", "fps", "abr", "ach", "vcap", "scap", "ten",
+    for k in ("target", "unit", "acopy", "vcopy", "safety", "codec", "res", "fps", "abr", "ach", "vcap", "scap", "ten",
               "deint"):
         V[k].trace_add("write", schedule_refresh)
 
@@ -2074,6 +2186,8 @@ def run_cli(argv):
     ap.add_argument("--no-source-cap", action="store_true")
     ap.add_argument("--10bit", dest="ten", action="store_true")
     ap.add_argument("--deinterlace", default="Auto", choices=["Auto", "On", "Off"])
+    ap.add_argument("--copy-video", action="store_true",
+                    help="don't re-encode the video – e.g. only swap the audio with --replace-audio")
     ap.add_argument("--no-hwdec", action="store_true",
                     help="don't use VideoToolbox hardware decoding (macOS)")
     ap.add_argument("--outdir", default="")
@@ -2085,7 +2199,7 @@ def run_cli(argv):
                  resolution=res, fps=a.fps, audio_kbps=a.audio, audio_channels=a.channels,
                  vimeo_cap=not a.no_vimeo_cap, source_cap=not a.no_source_cap,
                  ten_bit=a.ten, deinterlace=a.deinterlace, out_dir=a.outdir,
-                 hw_decode=not a.no_hwdec,
+                 hw_decode=not a.no_hwdec, video_copy=a.copy_video,
                  audio_copy=a.copy_audio)
     stop = threading.Event()
     rep_audio = probe_audio(a.replace_audio) if a.replace_audio else None
