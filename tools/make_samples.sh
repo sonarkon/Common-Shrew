@@ -18,4 +18,8 @@ q -f lavfi -i mandelbrot=size=1080x1920:rate=30 -t 6 -c:v libx264 -crf 14 "$OUT/
 # 720p + 24-bit PCM -> "Don't compress audio" saves .mov
 q -f lavfi -i testsrc2=size=1280x720:rate=25 -f lavfi -i sine=f=500:sample_rate=48000 -t 6 \
   -c:v libx264 -crf 12 -c:a pcm_s24le -ac 2 "$OUT/pcm24.mov"
+# replacement audio for hd_pcm.mov (20 s): longer, shorter and matching
+q -f lavfi -i "sine=f=660:sample_rate=44100" -t 23.5 -ac 2 "$OUT/audio_longer.wav"
+q -f lavfi -i "sine=f=330" -t 12 -c:a libmp3lame "$OUT/audio_shorter.mp3"
+q -f lavfi -i "sine=f=880" -t 20.2 -c:a aac "$OUT/audio_match.m4a"
 echo "Samples written to $OUT/"

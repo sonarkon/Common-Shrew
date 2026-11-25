@@ -50,6 +50,12 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      Vimeo ceiling and the source bitrate (scaled by pixel ratio^0.75).
    - Audio: small targets lower the audio bitrate automatically; `audio_copy` uses the
      source audio bitrate instead.
+   - Replacement audio: `probe_audio()` reads the external file, and `with_audio(info, a)`
+     returns a MediaInfo copy with `audio_path` / `audio_duration` set. `make_plan` then
+     writes the length check into `notes`.
+     - Lengths within `AUDIO_LEN_TOL` (0.5 s) count as matching.
+     - `Plan.audio_copy` is the final copy decision: copying is dropped when the
+       replacement is shorter than the video, because padding needs re-encoding.
 4. **`build_cmd(plan, settings, out, pass_no)`:**
    - Pass 1 → null muxer.
    - Pass 2 / single pass → final file with `-progress pipe:1`.
@@ -58,6 +64,10 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
      uses `slow-firstpass=0` for speed.
    - Colour tags come from the source and fall back to BT.709.
    - A silent `anullsrc` track is added when the source has no audio.
+   - With replacement audio, input 1 is that file (mapped `1:a:0`). Encoded audio gets
+     `-af apad`, then `-shortest`, so the output always has the video's length: longer
+     audio is cut, shorter audio is padded with silence. Copied audio gets `-shortest`
+     only. There is no offset/sync option yet.
    - Hardware decoding: `-hwaccel videotoolbox` is used when `Settings.hw_decode` is on
      (the default) and `hwdec_available()` is true, which only happens on macOS. If a run
      fails with it, `Job.run()` retries once with software decoding. Encoding stays
@@ -85,7 +95,14 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
        (`colw`), because macOS fonts run wider.
      - The file column gets the remaining width (`relabel_rows`), and names are shortened
        in the middle (`elide`).
-     - Output shows the estimate until encoding starts (`items[iid]["status"]`), then the
+     - Replacement audio is per item (`items[iid]["audio"]`). `eff(iid)` gives the effective
+     MediaInfo and must be used for plans, output paths and `Job`.
+     - The Audio panel's "Replace audio" button acts on the selected rows; dropping one
+       audio file onto the queue does the same.
+     - Length mismatches ask for confirmation twice: when the file is assigned and on
+       Compress.
+     - Rows with replaced audio show "♪".
+   - Output shows the estimate until encoding starts (`items[iid]["status"]`), then the
        progress or the result.
    - `Tooltip`: light colours. On macOS it uses `MacWindowStyle help` instead of
      `overrideredirect`, because the latter rendered black there.
@@ -113,6 +130,8 @@ python3 -m py_compile common_shrew.py
 python3 common_shrew.py --cli samples/scope.mov --res 1080 --dry-run    # expect 1920x804
 python3 common_shrew.py --cli samples/hfr_noaudio.mp4 --size 10MB --preset ultrafast
 python3 common_shrew.py --cli samples/pcm24.mov --size 3MB --copy-audio  # expect .mov output
+python3 common_shrew.py --cli samples/hd_pcm.mov --size 15MB --replace-audio samples/audio_shorter.mp3
+#   expect an audio stream ≈ 20 s (padded); with audio_longer.wav it is cut to 20 s
 
 # GUI
 .venv/bin/python common_shrew.py samples/*

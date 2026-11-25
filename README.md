@@ -29,6 +29,10 @@ recommended compression settings.
 - **Resizing never crops.** The video is fitted inside the chosen box (4K, 2K, 1080p,
   720p, SD) and keeps its aspect ratio. Portrait videos use the rotated box. Nothing is
   upscaled.
+- **Replace the audio track** with another file, such as a final mix. You can choose it in the
+  Audio panel or drop it onto the queue, and it applies to the selected video. Common Shrew
+  checks the length and warns if it differs by more than 0.5 s. Longer audio is cut,
+  shorter audio is padded with silence.
 - **"Don't compress audio"** keeps the original track. Files with PCM audio are saved as `.mov`.
 - **Never exceeds the source bitrate**, so efficient sources don't get bigger.
 - **H.265 by default**, for the best quality at a given size (x265, preset `medium`). x264 is
@@ -101,6 +105,7 @@ on the Mac.
 python3 common_shrew.py --cli movie.mov                    # 5 GB, H.265, Vimeo defaults
 python3 common_shrew.py --cli *.mov --size 750MB --res 1080
 python3 common_shrew.py --cli movie.mov --codec hevc_videotoolbox --copy-audio
+python3 common_shrew.py --cli movie.mov --replace-audio final-mix.wav
 python3 common_shrew.py --cli movie.mov --dry-run          # show plan + ffmpeg command
 python3 common_shrew.py --cli --help
 ```

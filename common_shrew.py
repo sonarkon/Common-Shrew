@@ -112,6 +112,10 @@ def parse_size_gb(text):
     return gb
 
 
+AUDIO_EXT = {".wav", ".wave", ".aif", ".aiff", ".aifc", ".mp3", ".m4a", ".aac", ".flac",
+             ".ogg", ".oga", ".opus", ".caf", ".wma", ".ac3", ".eac3"}
+AUDIO_LEN_TOL = 0.5   # seconds a replacement audio may differ before we warn
+
 VIDEO_EXT = {".mov", ".mp4", ".m4v", ".mxf", ".mkv", ".avi", ".mts", ".m2ts",
              ".mpg", ".mpeg", ".webm", ".wmv", ".dv", ".ts", ".3gp"}
 
@@ -217,6 +221,8 @@ class MediaInfo:
     rotation: int = 0
     size_bytes: int = 0
     video_kbps: int = 0   # source video bitrate (0 = unknown)
+    audio_path: str = ""          # external replacement audio (empty = use the video's own)
+    audio_duration: float = 0.0   # duration of that replacement audio
 
     @property
     def hdr(self):
@@ -328,6 +334,44 @@ def scrub_order(n):
     return out
 
 
+def probe_audio(path):
+    """Read an audio file's duration, channels, codec and bitrate (for audio replacement)."""
+    if not FFPROBE:
+        raise RuntimeError("ffprobe not found – install ffmpeg (see README).")
+    out = subprocess.run(
+        [FFPROBE, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", **POPEN_KW)
+    if out.returncode != 0:
+        raise RuntimeError(f"ffprobe: {out.stderr.strip() or 'unreadable file'}")
+    data = json.loads(out.stdout)
+    a = next((st for st in data.get("streams", []) if st.get("codec_type") == "audio"), None)
+    if a is None:
+        raise RuntimeError("No audio stream found in that file.")
+    dur = float(data.get("format", {}).get("duration") or a.get("duration") or 0)
+    if dur <= 0:
+        raise RuntimeError("Could not determine the audio duration.")
+    return dict(path=path, duration=dur, channels=int(a.get("channels", 2)),
+                codec=a.get("codec_name", ""), kbps=_audio_kbps(a))
+
+
+def with_audio(info, audio):
+    """MediaInfo of the video as if its audio were the replacement `audio` (or unchanged)."""
+    if not audio:
+        return info
+    return dataclasses.replace(
+        info, has_audio=True, audio_channels=audio["channels"], acodec=audio["codec"],
+        audio_kbps=audio["kbps"], audio_path=audio["path"], audio_duration=audio["duration"])
+
+
+def audio_len_diff(info):
+    """Replacement audio length minus video length in seconds (0 if no replacement)."""
+    return (info.audio_duration - info.duration) if info.audio_path else 0.0
+
+
+def fmt_diff(d):
+    return f"{'+' if d >= 0 else '−'}{abs(d):.1f} s"
+
+
 def thumbnail_png(path, duration, w=288, h=162, t=None):
     """Grab one frame (default ~10 % in) as PNG bytes, fitted into w×h."""
     if t is None:
@@ -383,6 +427,7 @@ class Plan:
     audio_ch: int
     est_bytes: int
     notes: list = field(default_factory=list)
+    audio_copy: bool = False    # stream-copy the audio (decided in make_plan)
 
 
 def display_dims(info):
@@ -450,6 +495,19 @@ def make_plan(info, s: Settings):
         ach = 2
     akbps = s.audio_kbps if ach == 2 else max(s.audio_kbps, 384)
     copy_audio = s.audio_copy and info.has_audio
+    if info.audio_path:
+        diff = audio_len_diff(info)
+        msg = f"Audio replaced by {os.path.basename(info.audio_path)}"
+        if diff > AUDIO_LEN_TOL:
+            msg += f" – it is {fmt_diff(diff)} longer than the video and will be cut at the end."
+        elif diff < -AUDIO_LEN_TOL:
+            msg += f" – it is {abs(diff):.1f} s shorter than the video; silence fills the rest."
+            if copy_audio:
+                copy_audio = False   # padding with silence needs re-encoding
+                msg += " (Re-encoded, because it can't be copied and padded.)"
+        else:
+            msg += f" (length matches, {fmt_diff(diff)})."
+        notes.append(msg)
     if copy_audio:
         akbps = info.audio_kbps or 320
         ach = info.audio_channels
@@ -487,7 +545,7 @@ def make_plan(info, s: Settings):
         notes.append("Interlaced source → deinterlacing (bwdif).")
     if info.hdr:
         notes.append("HDR source → 10-bit, HDR metadata tags kept.")
-    return Plan(info, out_w, out_h, out_fps, vkbps, akbps, ach, est, notes)
+    return Plan(info, out_w, out_h, out_fps, vkbps, akbps, ach, est, notes, copy_audio)
 
 
 def output_ext(info, s: Settings):
@@ -525,8 +583,11 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
         # unsupported formats fall back to software decoding inside ffmpeg
         cmd += ["-hwaccel", "videotoolbox"]
     cmd += ["-i", info.path]
-    if not info.has_audio and pass_no != 1:
-        cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+    if pass_no != 1:
+        if info.audio_path:            # input 1: replacement audio file
+            cmd += ["-i", info.audio_path]
+        elif not info.has_audio:       # input 1: generated silence
+            cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
 
     vf = []
     if (info.interlaced and s.deinterlace == "Auto") or s.deinterlace == "On":
@@ -543,7 +604,8 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
 
     cmd += ["-map", "0:v:0"]
     if pass_no != 1:
-        cmd += ["-map", "0:a:0" if info.has_audio else "1:a:0"]
+        own = info.has_audio and not info.audio_path
+        cmd += ["-map", "0:a:0" if own else "1:a:0"]
     cmd += ["-vf", ",".join(vf)]
     cmd += ["-fps_mode", "cfr"] if ffmpeg_has_fps_mode() else ["-vsync", "cfr"]
 
@@ -583,12 +645,18 @@ def build_cmd(plan: Plan, s: Settings, out, pass_no=0, passlog=None):
     if pass_no == 1:
         return cmd + ["-an", "-f", "null", "-progress", "pipe:1", "-nostats", os.devnull]
 
-    if s.audio_copy and info.has_audio:
+    if plan.audio_copy:
         cmd += ["-c:a", "copy"]
     else:
         cmd += ["-c:a", "aac", "-b:a", f"{plan.audio_kbps}k", "-ar", "48000",
                 "-ac", str(plan.audio_ch)]
-    if not info.has_audio:
+    if info.audio_path:
+        # the output always takes the video's length: longer audio is cut, shorter audio is
+        # padded with silence (apad is endless, -shortest then stops at the video's end)
+        if not plan.audio_copy:
+            cmd += ["-af", "apad"]
+        cmd += ["-shortest"]
+    elif not info.has_audio:
         cmd += ["-shortest"]
     cmd += ["-map_metadata", "0", "-movflags", "+faststart"]
     if s.extra_args.strip():
@@ -652,6 +720,9 @@ class Job:
         self.log(f"▶ {os.path.basename(self.path)}")
         self.log(f"  {fmt_dur(info.duration)}, {info.width}×{info.height} @ {fmt_fps(info.fps)} fps "
                  f"→ {plan.out_w}×{plan.out_h} @ {fmt_fps(plan.out_fps)} fps")
+        if info.audio_path:
+            self.log(f"  audio from {info.audio_path} ({fmt_dur(info.audio_duration)}, "
+                     f"{fmt_diff(audio_len_diff(info))} vs. video)")
         self.log(f"  video {plan.video_kbps/1000:.2f} Mbps · audio {plan.audio_kbps} kbps "
                  f"({'5.1' if plan.audio_ch == 6 else 'stereo'}) · est. {fmt_size(plan.est_bytes)}")
         for n in plan.notes:
@@ -782,6 +853,13 @@ TIPS = {
               "(or MOV when original PCM audio is kept).",
     "outdir": "Where the compressed files are saved – by default next to each source file. "
               "Click to pick one folder for all files; '×' resets to next-to-source.",
+    "areplace": "Use a different audio file instead of the video's own sound – e.g. a final mix "
+                "or a cleaner recording. Applies to the video(s) selected in the queue; you can "
+                "also drag an audio file onto the queue.\n\n"
+                "Common Shrew checks the length: within ±0.5 s it counts as matching. Longer audio "
+                "is cut at the end of the video, shorter audio is padded with silence. Audio "
+                "always starts together with the video (no offset). '×' goes back to the original "
+                "sound.",
     "acopy": "Keep the original audio track bit-for-bit instead of re-encoding it to AAC. "
              "Best quality, but it uses more of the size budget (uncompressed PCM ≈ 2.3 Mbps "
              "for 48 kHz / 24-bit stereo) – the video bitrate is reduced accordingly.\n\n"
@@ -1075,7 +1153,9 @@ def run_gui():
         px = max(40, int(tree.column("#0", "width")) - 64 - 32)
         for i in order:
             if i in items:
-                tree.item(i, text="  " + elide(os.path.basename(items[i]["path"]), px, fbase))
+                mark = "♪ " if items[i]["audio"] else ""
+                tree.item(i, text="  " + mark + elide(os.path.basename(items[i]["path"]),
+                                                     px - fbase.measure(mark), fbase))
     tree.bind("<Configure>", lambda e: root.after_idle(relabel_rows), add="+")
     tree.tag_configure("ok", foreground=C["ok"])
     tree.tag_configure("warn", foreground=C["warn"])
@@ -1320,7 +1400,7 @@ def run_gui():
             iid = sel[0] if sel else (order[0] if order else None)
             if iid:
                 name = os.path.splitext(os.path.basename(items[iid]["path"]))[0]
-                ext = output_ext(items[iid]["info"], settings())
+                ext = output_ext(eff(iid), settings())
         except Exception:
             pass
         short = name if len(name) <= 14 else name[:13] + "…"
@@ -1384,6 +1464,18 @@ def run_gui():
     abr_w = field(ac, 2, "Bitrate (kbps)", combo(ac, V["abr"],
                   ["128", "192", "256", "320", "384", "512"], 8, ro=False), "abr")
     ach_w = field(ac, 3, "Channels", combo(ac, V["ach"], ["Auto", "Stereo", "5.1"]), "ach")
+
+    # replace audio: [♪ name / Choose file…] [×] – applies to the selected queue item(s)
+    rf = ttk.Frame(ac, style="Panel.TFrame")
+    rf.columnconfigure(0, weight=1)
+    rep_btn = ttk.Button(rf, text="Choose file…", style="Small.TButton",
+                         command=lambda: replace_audio_dialog())
+    rep_btn.grid(row=0, column=0, sticky="we")
+    rep_tip = Tooltip(rep_btn, TIPS["areplace"])
+    rep_x = ttk.Button(rf, text="×", width=2, style="Small.TButton",
+                       command=lambda: assign_audio(selected_iids(), None))
+    rep_x.grid(row=0, column=1, padx=(4, 0))
+    field(ac, 4, "Replace audio", rf, "areplace")
 
     def audio_state(*_):
         if V["acopy"].get():
@@ -1454,8 +1546,71 @@ def run_gui():
         log.see("end")
 
     # ---------- queue handling
+    def eff(iid):
+        """The item's MediaInfo with its replacement audio applied (if any)."""
+        it = items[iid]
+        return with_audio(it["info"], it["audio"]) if it["info"] else None
+
+    def selected_iids():
+        sel = [i for i in tree.selection() if i in items]
+        return sel or ([order[0]] if len(order) == 1 else [])
+
+    def replace_audio_dialog():
+        if state["running"]:
+            return
+        iids = selected_iids()
+        if not iids:
+            messagebox.showinfo("Replace audio", "Select the video(s) in the queue first.")
+            return
+        p = filedialog.askopenfilename(title="Choose replacement audio", filetypes=[
+            ("Audio", " ".join("*" + e for e in sorted(AUDIO_EXT))), ("All files", "*")])
+        if p:
+            assign_audio(iids, p)
+
+    def assign_audio(iids, path):
+        """Attach replacement audio `path` (None = original sound) to the given items."""
+        if state["running"] or not iids:
+            return
+        if path is None:
+            for i in iids:
+                items[i]["audio"] = None
+        else:
+            try:
+                a = probe_audio(path)
+            except Exception as e:
+                messagebox.showerror("Replace audio", f"Can't use this file:\n\n{e}")
+                return
+            off = []
+            for i in iids:
+                v = items[i]["info"]
+                if v and abs(a["duration"] - v.duration) > AUDIO_LEN_TOL:
+                    off.append(f"• {os.path.basename(items[i]['path'])}: video "
+                               f"{fmt_dur(v.duration)}, audio {fmt_dur(a['duration'])} "
+                               f"({fmt_diff(a['duration'] - v.duration)})")
+            if off and not messagebox.askyesno(
+                    "Length doesn't match",
+                    f"{os.path.basename(path)} is not as long as the video:\n\n"
+                    + "\n".join(off) + "\n\nLonger audio is cut at the end, shorter audio is "
+                    "padded with silence. Use it anyway?", icon="warning"):
+                return
+            for i in iids:
+                items[i]["audio"] = a
+                items[i]["status"] = None     # show the new estimate again
+        relabel_rows()
+        refresh_estimates()
+
     def add_paths(paths):
         added = False
+        audio = [p for p in paths if os.path.isfile(p)
+                 and os.path.splitext(p)[1].lower() in AUDIO_EXT]
+        if audio:   # an audio file dropped on the queue replaces the selected video's sound
+            iids = selected_iids()
+            if len(audio) == 1 and iids:
+                assign_audio(iids, audio[0])
+            else:
+                messagebox.showinfo("Replace audio", "To replace a video's sound, select the "
+                                    "video in the queue first, then drop one audio file.")
+            paths = [p for p in paths if p not in audio]
         for p in paths:
             if os.path.isdir(p):
                 for dp, _, fs in os.walk(p):
@@ -1476,7 +1631,8 @@ def run_gui():
                           values=("…", "…", fmt_size(os.path.getsize(p)), "analysing…"))
         items[iid] = dict(path=p, info=None, big=None, small=None, result="", error="",
                           status=None,   # set once encoding starts: replaces the estimate
-                          scrub={}, scrub_started=False, scrub_times=None)
+                          scrub={}, scrub_started=False, scrub_times=None,
+                          audio=None)   # replacement audio: dict from probe_audio()
         order.append(iid)
         root.after_idle(relabel_rows)
         threading.Thread(target=analyse, args=(iid, p), daemon=True).start()
@@ -1547,7 +1703,7 @@ def run_gui():
         if not it or not it["info"]:
             return None, None
         try:
-            return make_plan(it["info"], s or settings()), None
+            return make_plan(eff(iid), s or settings()), None
         except Exception as e:
             return None, str(e)
 
@@ -1587,11 +1743,31 @@ def run_gui():
               "deint"):
         V[k].trace_add("write", schedule_refresh)
 
+    def update_replace_btn():
+        iids = selected_iids()
+        a = items[iids[0]]["audio"] if iids else None
+        if a:
+            n = os.path.basename(a["path"])
+            v = items[iids[0]]["info"]
+            d = (a["duration"] - v.duration) if v else 0.0
+            bad = abs(d) > AUDIO_LEN_TOL
+            rep_btn.config(text="♪ " + (n if len(n) <= 16 else n[:15] + "…") + (" ⚠" if bad else ""))
+            rep_tip.text = (f"{a['path']}\n\nAudio {fmt_dur(a['duration'])} · "
+                            + (f"{fmt_diff(d)} vs. video – longer audio is cut, shorter is "
+                               "padded with silence." if bad else "length matches the video ✓"))
+            rep_x.state(["!disabled"])
+        else:
+            rep_btn.config(text="Choose file…")
+            rep_tip.text = TIPS["areplace"]
+            rep_x.state(["disabled"])
+        rep_btn.state(["!disabled"] if iids else ["disabled"])
+
     def show_preview(*_):
         update_output_labels()
         sel = tree.selection()
         iid = sel[0] if sel else (order[0] if order else None)
         if not iid or iid not in items:
+            update_replace_btn()
             on_thumb_leave()
             pname.config(text="No video selected")
             pmeta.config(text="")
@@ -1613,6 +1789,12 @@ def run_gui():
         dw, dh = display_dims(info)
         a = ("no audio" if not info.has_audio else
              f"{info.audio_channels} ch audio")
+        ei = eff(iid)
+        if ei.audio_path:
+            d = audio_len_diff(ei)
+            ok = abs(d) <= AUDIO_LEN_TOL
+            a += (f"\n♪ {elide(os.path.basename(ei.audio_path), 150, tkfont.Font(font=F['small']))}"
+                  f" · {'length ✓' if ok else fmt_diff(d) + ' ⚠'}")
         pmeta.config(text=(f"{info.vcodec.upper()} · {dw}×{dh} · {fmt_fps(info.fps)} fps"
                            f"{' (VFR)' if info.vfr else ''}{' · interlaced' if info.interlaced else ''}"
                            f"{' · HDR' if info.hdr else ''}\n"
@@ -1624,8 +1806,7 @@ def run_gui():
             return
         txt = (f"→  {p.out_w}×{p.out_h} · {fmt_fps(p.out_fps)} fps\n"
                f"→  video {p.video_kbps/1000:.2f} Mbps\n"
-               f"→  audio {'copy' if settings().audio_copy and info.has_audio else ''}"
-               f"{'' if settings().audio_copy and info.has_audio else str(p.audio_kbps) + ' kbps'}"
+               f"→  audio {'copy' if p.audio_copy else str(p.audio_kbps) + ' kbps'}"
                f" · {'5.1' if p.audio_ch == 6 else 'stereo' if p.audio_ch == 2 else str(p.audio_ch) + ' ch'}\n"
                f"→  ≈ {fmt_size(p.est_bytes)}  ({reduction(info.size_bytes, p.est_bytes)})")
         if it["result"]:
@@ -1633,6 +1814,7 @@ def run_gui():
         if p.notes:
             txt += "\n\n• " + "\n• ".join(p.notes)
         pplan.config(text=txt, foreground=C["fg"])
+        update_replace_btn()
 
     tree.bind("<<TreeviewSelect>>", show_preview)
     tree.bind("<Delete>", lambda e: remove_selected())
@@ -1655,7 +1837,7 @@ def run_gui():
                 msgs.put(("row", iid, f"Encoding {f*100:.0f} %", "busy"))
             try:
                 out, size = Job(it["path"], s, lambda m: msgs.put(("log", m)), prog,
-                                stop_event, it["info"]).run()
+                                stop_event, eff(iid)).run()
                 red = reduction(it["info"].size_bytes, size)
                 over = size > s.target_gb * 1e9
                 msgs.put(("row", iid, f"{'⚠ ' if over else '✓ '}{fmt_size(size)} ({red})",
@@ -1692,8 +1874,20 @@ def run_gui():
         if s.out_dir and not os.path.isdir(s.out_dir):
             messagebox.showerror("Output folder", "The output folder doesn't exist.")
             return
-        existing = [output_path(items[i]["path"], s, items[i]["info"]) for i in todo
-                    if os.path.exists(output_path(items[i]["path"], s, items[i]["info"]))]
+        off = []
+        for i in todo:
+            ei = eff(i)
+            if ei.audio_path and abs(audio_len_diff(ei)) > AUDIO_LEN_TOL:
+                off.append(f"• {os.path.basename(items[i]['path'])}: "
+                           f"{fmt_diff(audio_len_diff(ei))}")
+        if off and not messagebox.askyesno(
+                "Replacement audio length",
+                "The replacement audio doesn't match the video length for:\n\n"
+                + "\n".join(off) + "\n\nLonger audio is cut, shorter audio is padded with "
+                "silence. Continue?", icon="warning"):
+            return
+        existing = [output_path(items[i]["path"], s, eff(i)) for i in todo
+                    if os.path.exists(output_path(items[i]["path"], s, eff(i)))]
         if existing and not messagebox.askyesno(
                 "Overwrite?", f"{len(existing)} output file(s) already exist. Overwrite?"):
             return
@@ -1873,6 +2067,9 @@ def run_cli(argv):
     ap.add_argument("--audio", type=int, default=320)
     ap.add_argument("--channels", default="Auto", choices=["Auto", "Stereo", "5.1"])
     ap.add_argument("--copy-audio", action="store_true", help="keep original audio untouched")
+    ap.add_argument("--replace-audio", metavar="FILE", default="",
+                    help="use this audio file instead of the video's own sound "
+                         "(longer audio is cut, shorter is padded with silence)")
     ap.add_argument("--no-vimeo-cap", action="store_true")
     ap.add_argument("--no-source-cap", action="store_true")
     ap.add_argument("--10bit", dest="ten", action="store_true")
@@ -1891,9 +2088,12 @@ def run_cli(argv):
                  hw_decode=not a.no_hwdec,
                  audio_copy=a.copy_audio)
     stop = threading.Event()
+    rep_audio = probe_audio(a.replace_audio) if a.replace_audio else None
+    if rep_audio and len(a.files) > 1:
+        print("Note: --replace-audio uses the same audio file for every video.")
     for f in a.files:
         if a.dry_run:
-            info = probe(f)
+            info = with_audio(probe(f), rep_audio)
             plan = make_plan(info, s)
             print(f"{f}: {plan.out_w}x{plan.out_h} @ {fmt_fps(plan.out_fps)} fps, "
                   f"{plan.video_kbps} kbps, est {fmt_size(plan.est_bytes)}")
@@ -1904,7 +2104,8 @@ def run_cli(argv):
 
         def prog(x, speed):
             print(f"\r  {x*100:5.1f} %  {speed}   ", end="", flush=True)
-        Job(f, s, lambda m: print("\r" + m), prog, stop).run()
+        Job(f, s, lambda m: print("\r" + m), prog, stop,
+            with_audio(probe(f), rep_audio)).run()
 
 
 if __name__ == "__main__":
