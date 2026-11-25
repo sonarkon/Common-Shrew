@@ -30,7 +30,8 @@ recommended compression settings.
   720p, SD) and keeps its aspect ratio. Portrait videos use the rotated box. Nothing is
   upscaled.
 - **Replace the audio track** with another file, such as a final mix. You can choose it in the
-  Audio panel or drop it onto the queue, and it applies to the selected video. Common Shrew
+  Audio panel, drag it onto the "Replace audio" button or drop it onto the queue, and it
+  applies to the selected video. Common Shrew
   checks the length and warns if it differs by more than 0.5 s. Longer audio is cut,
   shorter audio is padded with silence.
 - **"Don't re-encode video"** copies the picture unchanged, without quality loss and in

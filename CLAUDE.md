@@ -105,8 +105,10 @@ Git-ignored: `.venv/`, `samples/`, video files, and the launcher flags `.use_sys
        in the middle (`elide`).
      - Replacement audio is per item (`items[iid]["audio"]`). `eff(iid)` gives the effective
      MediaInfo and must be used for plans, output paths and `Job`.
-     - The Audio panel's "Replace audio" button acts on the selected rows; dropping one
-       audio file onto the queue does the same.
+     - The Audio panel's "Replace audio" button acts on the selected rows. Dropping one
+       file onto that button (it turns accent-blue while hovering) or an audio file onto
+       the queue does the same.
+     - Any file with an audio stream works; a dropped video gives its own sound.
      - Length mismatches ask for confirmation twice: when the file is assigned and on
        Compress.
      - Rows with replaced audio show "♪".

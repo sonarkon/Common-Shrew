@@ -940,8 +940,9 @@ TIPS = {
     "outdir": "Where the compressed files are saved – by default next to each source file. "
               "Click to pick one folder for all files; '×' resets to next-to-source.",
     "areplace": "Use a different audio file instead of the video's own sound – e.g. a final mix "
-                "or a cleaner recording. Applies to the video(s) selected in the queue; you can "
-                "also drag an audio file onto the queue.\n\n"
+                "or a cleaner recording. Applies to the video(s) selected in the queue.\n"
+                "Click to choose a file, or drag it onto this button (or onto the queue). Any file "
+                "with sound works – dropping another video uses its audio track.\n\n"
                 "Common Shrew checks the length: within ±0.5 s it counts as matching. Longer audio "
                 "is cut at the end of the video, shorter audio is padded with silence. Audio "
                 "always starts together with the video (no offset). '×' goes back to the original "
@@ -1085,6 +1086,9 @@ def run_gui():
                                          ("active", C["accent_hi"])],
            foreground=[("disabled", C["muted"])])
     st.configure("Small.TButton", padding=(10, 4), font=F["small"])
+    st.configure("Drop.TButton", padding=(10, 4), font=F["small"], background=C["accent"],
+                 foreground="#ffffff")   # drop target highlight
+    st.map("Drop.TButton", background=[("active", C["accent_hi"])])
     st.configure("Kofi.TButton", background=C["field"], foreground=C["fg"],
                  padding=(12, 5), font=F["small"], borderwidth=1, bordercolor=C["line"],
                  lightcolor=C["field"], darkcolor=C["field"])
@@ -1797,6 +1801,25 @@ def run_gui():
     total_lbl.pack(side="right")
 
     if dnd:
+        def on_audio_drop(e):
+            rep_btn.configure(style="Small.TButton")
+            files = [f for f in root.tk.splitlist(e.data) if os.path.isfile(f)]
+            iids = selected_iids()
+            if len(files) != 1:
+                messagebox.showinfo("Replace audio", "Drop exactly one audio file.")
+            elif not iids:
+                messagebox.showinfo("Replace audio", "Select the video(s) in the queue first.")
+            else:
+                assign_audio(iids, files[0])
+            return e.action
+        for w in (rep_btn, rf):
+            w.drop_target_register(DND_FILES)
+            w.dnd_bind("<<Drop>>", on_audio_drop)
+            w.dnd_bind("<<DropEnter>>", lambda e: (rep_btn.configure(style="Drop.TButton"),
+                                                   e.action)[-1])
+            w.dnd_bind("<<DropLeave>>", lambda e: (rep_btn.configure(style="Small.TButton"),
+                                                   e.action)[-1])
+
         def on_drop(e):
             add_paths(root.tk.splitlist(e.data))
             return e.action
